@@ -117,7 +117,10 @@ function AgentOrb({ agent, state }) {
   );
 }
 
-export default function MissionControl({ situation, intent = null, mode = "interview", tone = "neutral", supportLevel = "guided", onBeginSession, getIdToken }) {
+export default function MissionControl({ situation, intent = null, mode = "interview", moduleInfo = null, tone = "neutral", supportLevel = "guided", onBeginSession, getIdToken }) {
+  // moduleInfo comes from GET /api/modules (fetched once in App.jsx) — falls
+  // back to the old hardcoded check if it hasn't loaded yet.
+  const skipsResearch = moduleInfo ? !!moduleInfo.skipResearch : mode === "conversation";
   const [outputs, setOutputs] = useState({});
   const [done, setDone] = useState({});
   const [sessionData, setSessionData] = useState(null);
@@ -223,8 +226,8 @@ export default function MissionControl({ situation, intent = null, mode = "inter
     return "idle";
   };
 
-  // ── Conversation mode: one calm setup moment, no agent theater ──────────────
-  if (mode === "conversation") {
+  // ── Modules that skip research: one calm setup moment, no agent theater ────
+  if (skipsResearch) {
     return (
       <motion.div className="screen" variants={sv} initial="initial" animate="animate" exit="exit"
         style={{ background: "var(--ink)", display: "flex", alignItems: "center", justifyContent: "center" }}>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getJSON } from "../lib/api";
 import { getSessions as getLocalSessions } from "../lib/localSessions";
@@ -8,13 +8,6 @@ const sv = {
   animate: { opacity: 1, filter: "blur(0px)", transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
   exit:    { opacity: 0, filter: "blur(8px)", transition: { duration: 0.35 } },
 };
-
-function scoreColor(s) {
-  if (s === null || s === undefined) return "var(--muted)";
-  if (s >= 75) return "#c8f064";
-  if (s >= 60) return "#7B6CFF";
-  return "#FF6B6B";
-}
 
 function timeAgo(ms) {
   const diff = Date.now() - ms;
@@ -222,200 +215,7 @@ function calcStreak(sessions) {
   return streak;
 }
 
-/* ── Score trend chart ── */
-function TrendGraph({ sessions }) {
-  const scored = [...sessions]
-    .filter(s => s.clarityScore !== null && s.clarityScore !== undefined)
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .slice(-8);
-
-  if (scored.length < 2) return null;
-
-  const W = 600, H = 130;
-  const PAD = { top: 14, right: 20, bottom: 30, left: 36 };
-  const innerW = W - PAD.left - PAD.right;
-  const innerH = H - PAD.top - PAD.bottom;
-
-  const scores = scored.map(s => s.clarityScore);
-  const minScore = Math.max(0, Math.min(...scores) - 10);
-  const maxScore = Math.min(100, Math.max(...scores) + 10);
-
-  const xOf = i => PAD.left + (i / (scored.length - 1)) * innerW;
-  const yOf = s  => PAD.top + innerH * (1 - (s - minScore) / (maxScore - minScore));
-
-  const pts = scored.map((s, i) => ({ x: xOf(i), y: yOf(s.clarityScore), score: s.clarityScore }));
-
-  const linePath = pts.map((pt, i) => {
-    if (i === 0) return `M${pt.x},${pt.y}`;
-    const prev = pts[i - 1];
-    const cpx = (prev.x + pt.x) / 2;
-    return `C${cpx},${prev.y} ${cpx},${pt.y} ${pt.x},${pt.y}`;
-  }).join(" ");
-
-  const areaPath = `${linePath} L${pts[pts.length - 1].x},${H - PAD.bottom} L${pts[0].x},${H - PAD.bottom} Z`;
-
-  const latest = scores[scores.length - 1];
-  const delta  = latest - scores[0];
-
-  const midY = yOf(minScore + (maxScore - minScore) * 0.5);
-  const topY = yOf(maxScore);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.12, duration: 0.55 }}
-      style={{
-        background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: "18px",
-        padding: "20px 20px 10px",
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
-      {/* Glow behind latest dot */}
-      <div style={{
-        position: "absolute", top: 0, right: 0,
-        width: "180px", height: "180px",
-        background: `radial-gradient(circle at 80% 40%, ${scoreColor(latest)}12 0%, transparent 60%)`,
-        pointerEvents: "none",
-      }} />
-
-      {/* Header */}
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-        marginBottom: "12px", position: "relative", zIndex: 1,
-      }}>
-        <div>
-          <div style={{
-            fontFamily: "var(--mono)", fontSize: "15px",
-            color: "rgba(106,103,128,0.5)", letterSpacing: "0.18em", marginBottom: "5px",
-          }}>
-            SCORE PROGRESSION
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
-            <span style={{ fontFamily: "var(--display)", fontSize: "30px", color: scoreColor(latest), lineHeight: 1 }}>
-              {latest}
-            </span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: "16px", color: "var(--muted)", opacity: 0.5 }}>/100</span>
-          </div>
-        </div>
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.45 }}
-          style={{
-            display: "flex", alignItems: "center", gap: "5px",
-            padding: "5px 12px", borderRadius: "999px",
-            background: delta >= 0 ? "rgba(170,255,110,0.07)" : "rgba(255,107,107,0.07)",
-            border: `1px solid ${delta >= 0 ? "rgba(170,255,110,0.22)" : "rgba(255,107,107,0.22)"}`,
-          }}
-        >
-          <span style={{
-            fontFamily: "var(--mono)", fontSize: "17px", letterSpacing: "0.04em",
-            color: delta >= 0 ? "var(--success)" : "var(--coral)",
-          }}>
-            {delta > 0 ? "↑" : delta < 0 ? "↓" : "→"} {Math.abs(delta)} pts
-          </span>
-        </motion.div>
-      </div>
-
-      {/* Chart */}
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
-        <defs>
-          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#7B6CFF" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#7B6CFF" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#7B6CFF" />
-            <stop offset="60%" stopColor="#A08FFF" />
-            <stop offset="100%" stopColor="#00D9FF" />
-          </linearGradient>
-          <filter id="dotGlow">
-            <feGaussianBlur stdDeviation="2.5" result="blur" />
-            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-        </defs>
-
-        {/* Grid lines */}
-        {[topY, midY].map((y, gi) => (
-          <g key={gi}>
-            <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
-              stroke="rgba(255,255,255,0.04)" strokeWidth="1" strokeDasharray="3 6" />
-            <text x={PAD.left - 6} y={y + 3.5}
-              fill="rgba(106,103,128,0.4)" fontSize="8.5" textAnchor="end"
-              fontFamily="'JetBrains Mono', monospace">
-              {Math.round(gi === 0 ? maxScore : minScore + (maxScore - minScore) * 0.5)}
-            </text>
-          </g>
-        ))}
-
-        {/* Area fill */}
-        <path d={areaPath} fill="url(#areaGrad)" />
-
-        {/* Animated line */}
-        <motion.path
-          d={linePath}
-          fill="none" stroke="url(#lineGrad)" strokeWidth="2.5"
-          strokeLinecap="round" strokeLinejoin="round"
-          initial={{ pathLength: 0, opacity: 0 }}
-          animate={{ pathLength: 1, opacity: 1 }}
-          transition={{ duration: 1.6, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
-          style={{ filter: "drop-shadow(0 0 5px rgba(123,108,255,0.55))" }}
-        />
-
-        {/* Dots */}
-        {pts.map((pt, i) => (
-          <motion.g key={i}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.25 + (i / pts.length) * 1.3, duration: 0.35 }}
-            style={{ transformOrigin: `${pt.x}px ${pt.y}px` }}
-          >
-            <circle cx={pt.x} cy={pt.y} r="9" fill={`${scoreColor(pt.score)}14`} />
-            <circle cx={pt.x} cy={pt.y} r="5" fill="#060610" stroke={scoreColor(pt.score)} strokeWidth="1.8"
-              filter="url(#dotGlow)" />
-            <circle cx={pt.x} cy={pt.y} r="2.2" fill={scoreColor(pt.score)} />
-          </motion.g>
-        ))}
-
-        {/* Labels */}
-        {pts.map((pt, i) => (
-          <text key={i} x={pt.x} y={H - 5}
-            textAnchor="middle" fill="rgba(106,103,128,0.35)"
-            fontSize="9" fontFamily="'JetBrains Mono', monospace">
-            #{i + 1}
-          </text>
-        ))}
-      </svg>
-    </motion.div>
-  );
-}
-
-/* ── Mini score ring ── */
-function MiniRing({ score, color, size = 52 }) {
-  const r = size / 2 - 5;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (circ * score) / 100;
-  return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
-      <motion.circle
-        cx={size/2} cy={size/2} r={r} fill="none"
-        stroke={color} strokeWidth="3" strokeLinecap="round"
-        strokeDasharray={circ}
-        initial={{ strokeDashoffset: circ }}
-        animate={{ strokeDashoffset: offset }}
-        transition={{ duration: 1.2, ease: "easeOut", delay: 0.2 }}
-      />
-    </svg>
-  );
-}
-
 function SessionCard({ session, onView, index }) {
-  const color = scoreColor(session.clarityScore);
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -447,21 +247,6 @@ function SessionCard({ session, onView, index }) {
         }} />
       )}
 
-      {session.clarityScore !== null && (
-        <div style={{ position: "relative", flexShrink: 0 }}>
-          <MiniRing score={session.clarityScore} color={color} size={52} />
-          <div style={{
-            position: "absolute", inset: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span style={{
-              fontFamily: "var(--display)", fontSize: "19px",
-              color, lineHeight: 1, transform: "rotate(90deg)",
-            }}>{session.clarityScore}</span>
-          </div>
-        </div>
-      )}
-
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
           fontFamily: "var(--ui)", fontSize: "19px", color: "var(--text)",
@@ -477,17 +262,17 @@ function SessionCard({ session, onView, index }) {
           </span>
           <span style={{ width: 2, height: 2, borderRadius: "50%", background: "var(--muted)", opacity: 0.4 }} />
           <span style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.05em" }}>
-            {Math.ceil(session.turnCount / 2)} exchanges
+            {Math.ceil((session.turnCount || 0) / 2)} exchanges
           </span>
         </div>
-        {session.overallVerdict && (
+        {session.focus && (
           <div style={{
             marginTop: "10px",
             fontFamily: "var(--mono)", fontSize: "16px", color: "rgba(106,103,128,0.7)",
             lineHeight: 1.55, overflow: "hidden", display: "-webkit-box",
             WebkitLineClamp: 1, WebkitBoxOrient: "vertical",
           }}>
-            {session.overallVerdict}
+            {session.focus}
           </div>
         )}
       </div>
@@ -503,11 +288,36 @@ function SessionCard({ session, onView, index }) {
   );
 }
 
-function PastSessionModal({ session, onClose }) {
-  if (!session) return null;
-  const d = session.debrief;
-  const color = scoreColor(d?.clarityScore);
+// Dashboard's session list is a trimmed summary (no .history/.debrief) when it
+// comes from GET /api/sessions, but a full record when it comes from the
+// localStorage fallback (lib/localSessions.js). Fetch the full record on open
+// only when it isn't already present, then render the CURRENT (non-scored)
+// debrief shape — persona_impressions / communication_observations / focus /
+// self_advocacy / question_breakdown — not the legacy scored fields.
+function PastSessionModal({ session, onClose, getIdToken }) {
+  const [full, setFull] = useState(Array.isArray(session?.history) ? session : null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+
+  useEffect(() => {
+    if (!session || full) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getIdToken();
+        const data = await getJSON(`/api/sessions/${session.id}`, token);
+        if (!cancelled) setFull(data);
+      } catch (e) {
+        console.error("[Dashboard] failed to load full session:", e);
+        if (!cancelled) setLoadFailed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
+  if (!session) return null;
+  const d = full?.debrief;
 
   return (
     <motion.div
@@ -536,75 +346,63 @@ function PastSessionModal({ session, onClose }) {
         }}
       >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.15em", marginBottom: "10px" }}>
-              {new Date(session.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-            </div>
-            <div style={{ fontFamily: "var(--display)", fontSize: "23px", color: "var(--text)", lineHeight: 1.4 }}>
-              {session.situation}
-            </div>
+        <div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.15em", marginBottom: "10px" }}>
+            {new Date(session.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
           </div>
-          {d?.clarityScore !== undefined && (
-            <div style={{ textAlign: "center", flexShrink: 0 }}>
-              <div style={{ position: "relative", width: 90, height: 90 }}>
-                <MiniRing score={d.clarityScore} color={color} size={90} />
-                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontFamily: "var(--display)", fontSize: "34px", color, lineHeight: 1, transform: "rotate(90deg)" }}>{d.clarityScore}</span>
-                </div>
-              </div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.12em", marginTop: "4px" }}>CLARITY</div>
-            </div>
-          )}
+          <div style={{ fontFamily: "var(--display)", fontSize: "23px", color: "var(--text)", lineHeight: 1.4 }}>
+            {session.situation}
+          </div>
         </div>
 
         <div style={{ height: "1px", background: "rgba(255,255,255,0.05)" }} />
 
-        {d?.clarityRationale && (
-          <div style={{ fontFamily: "var(--ui)", fontSize: "19px", color: "var(--muted)", lineHeight: 1.7 }}>
-            {d.clarityRationale}
+        {!full && !loadFailed && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 16, color: "var(--muted)", letterSpacing: "0.1em" }}>
+            LOADING…
+          </div>
+        )}
+        {loadFailed && (
+          <div style={{ fontFamily: "var(--ui)", fontSize: 18, color: "var(--muted)", lineHeight: 1.6 }}>
+            Couldn't load the full debrief for this session. Your transcript may still be viewable below.
           </div>
         )}
 
-        {d?.bestMoment?.quote && (
-          <div style={{ padding: "18px 20px", borderRadius: "14px", background: "rgba(200,240,100,0.04)", borderLeft: "2px solid var(--success)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--success)", letterSpacing: "0.14em", marginBottom: "10px" }}>STRONGEST MOMENT</div>
-            <div style={{ fontFamily: "var(--display)", fontStyle: "italic", fontSize: "20px", lineHeight: 1.7, marginBottom: "8px" }}>"{d.bestMoment.quote}"</div>
-            <div style={{ fontFamily: "var(--ui)", fontSize: "18px", color: "var(--muted)", lineHeight: 1.6 }}>{d.bestMoment.reason}</div>
-          </div>
-        )}
-
-        {d?.worstMoment?.quote && (
-          <div style={{ padding: "18px 20px", borderRadius: "14px", background: "rgba(255,107,107,0.04)", borderLeft: "2px solid var(--coral)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--coral)", letterSpacing: "0.14em", marginBottom: "10px" }}>CRITICAL STUMBLE</div>
-            <div style={{ fontFamily: "var(--display)", fontStyle: "italic", fontSize: "20px", lineHeight: 1.7, marginBottom: "8px" }}>"{d.worstMoment.quote}"</div>
-            <div style={{ fontFamily: "var(--ui)", fontSize: "18px", color: "var(--muted)", lineHeight: 1.6 }}>{d.worstMoment.reason}</div>
-          </div>
-        )}
-
-        {d?.contentGaps?.length > 0 && (
-          <div style={{ padding: "18px 20px", borderRadius: "14px", background: "rgba(245,166,35,0.04)", borderLeft: "2px solid var(--amber)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--amber)", letterSpacing: "0.14em", marginBottom: "12px" }}>CONTENT GAPS</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {d.contentGaps.slice(0, 3).map((g, i) => (
-                <div key={i} style={{ display: "flex", gap: "10px" }}>
-                  <span style={{ color: "var(--amber)", flexShrink: 0, opacity: 0.7 }}>→</span>
-                  <div style={{ fontFamily: "var(--ui)", fontSize: "18px", color: "var(--muted)", lineHeight: 1.6 }}>{g.gap}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {d?.priorityFix && (
+        {d?.focus && (
           <div style={{ padding: "20px 22px", borderRadius: "14px", background: "rgba(123,108,255,0.05)", border: "1px solid rgba(123,108,255,0.15)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--primary)", letterSpacing: "0.14em", marginBottom: "10px" }}>FOCUS ON THIS</div>
-            <div style={{ fontFamily: "var(--display)", fontSize: "22px", lineHeight: 1.6 }}>{d.priorityFix}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--primary)", letterSpacing: "0.14em", marginBottom: "10px" }}>IF YOU PRACTICE ONE THING NEXT</div>
+            <div style={{ fontFamily: "var(--display)", fontSize: "22px", lineHeight: 1.6 }}>{d.focus}</div>
+          </div>
+        )}
+
+        {(d?.communication_observations || []).length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.14em" }}>COMMUNICATION OBSERVATIONS</div>
+            {d.communication_observations.slice(0, 4).map((o, i) => (
+              <div key={i} style={{ display: "flex", gap: "10px" }}>
+                <span style={{ color: "var(--primary)", flexShrink: 0, opacity: 0.7 }}>→</span>
+                <div style={{ fontFamily: "var(--ui)", fontSize: "18px", color: "var(--muted)", lineHeight: 1.6 }}>
+                  <strong style={{ color: "var(--text-2)", fontWeight: 500 }}>{o.dimension}:</strong> {o.observation}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(d?.persona_impressions || []).length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: "15px", color: "var(--muted)", letterSpacing: "0.14em" }}>PANEL IMPRESSIONS</div>
+            {d.persona_impressions.map((imp, i) => (
+              <div key={i} style={{ padding: "14px 16px", borderRadius: "12px", background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ fontFamily: "var(--display)", fontSize: "18px", color: "var(--text)", marginBottom: "4px" }}>{imp.persona}</div>
+                <div style={{ fontFamily: "var(--ui)", fontSize: "17px", color: "var(--muted)", lineHeight: 1.6 }}>{imp.impression}</div>
+              </div>
+            ))}
           </div>
         )}
 
         {/* Transcript toggle */}
-        {session.history?.length > 0 && (
+        {full?.history?.length > 0 && (
           <div>
             <button
               onClick={() => setShowTranscript(v => !v)}
@@ -617,7 +415,7 @@ function PastSessionModal({ session, onClose }) {
                 color: "var(--muted)", letterSpacing: "0.12em",
               }}
             >
-              <span>TRANSCRIPT · {session.history.length} TURNS</span>
+              <span>TRANSCRIPT · {full.history.length} TURNS</span>
               <span style={{ opacity: 0.5 }}>{showTranscript ? "▲" : "▼"}</span>
             </button>
             <AnimatePresence>
@@ -633,7 +431,7 @@ function PastSessionModal({ session, onClose }) {
                     display: "flex", flexDirection: "column", gap: "12px",
                     marginTop: "10px", maxHeight: "260px", overflowY: "auto", scrollbarWidth: "none",
                   }}>
-                    {session.history.map((turn, i) => (
+                    {full.history.map((turn, i) => (
                       <div key={i} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                         <span style={{ fontFamily: "var(--mono)", fontSize: "15px", color: turn.speaker === "You" ? "var(--amber)" : "var(--teal)", letterSpacing: "0.08em" }}>
                           {turn.speaker.toUpperCase()}
@@ -658,7 +456,7 @@ function PastSessionModal({ session, onClose }) {
   );
 }
 
-export default function Dashboard({ user, onNewSession, getIdToken }) {
+export default function Dashboard({ user, onNewSession, onOpenProgress, getIdToken }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState(null);
@@ -680,11 +478,7 @@ export default function Dashboard({ user, onNewSession, getIdToken }) {
     load();
   }, [user, getIdToken]);
 
-  const avgScore = sessions.length
-    ? Math.round(sessions.filter(s => s.clarityScore !== null).reduce((a, s) => a + (s.clarityScore || 0), 0) / Math.max(sessions.filter(s => s.clarityScore !== null).length, 1))
-    : null;
   const streak = calcStreak(sessions);
-  const bestScore = sessions.length ? Math.max(...sessions.filter(s => s.clarityScore != null).map(s => s.clarityScore)) : null;
 
   const firstName = user?.given_name || user?.name?.split(" ")[0] || "there";
 
@@ -746,18 +540,19 @@ export default function Dashboard({ user, onNewSession, getIdToken }) {
           )}
         </motion.div>
 
-        {/* Stats row */}
+        {/* Stats row — Sessions / Day Streak only. Score tiles were removed:
+            the current debrief is non-scored, and no metric here should ever
+            collapse into a single number the way clarityScore used to.
+            Per-metric trends live in the Progress view instead. */}
         {!loading && sessions.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.5 }}
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px" }}
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}
           >
             {[
               { label: "Sessions", value: sessions.length, color: "var(--primary)" },
-              { label: "Avg Score", value: avgScore ?? "—", color: scoreColor(avgScore) },
-              { label: "Best Score", value: bestScore ?? "—", color: scoreColor(bestScore) },
               {
                 label: "Day Streak",
                 value: streak ? `${streak}` : "0",
@@ -791,8 +586,28 @@ export default function Dashboard({ user, onNewSession, getIdToken }) {
         {/* Practice heatmap */}
         {!loading && sessions.length > 0 && <PracticeHeatmap sessions={sessions} />}
 
-        {/* Score trend graph */}
-        {!loading && <TrendGraph sessions={sessions} />}
+        {/* Progress view entry point */}
+        {!loading && sessions.length > 0 && onOpenProgress && (
+          <motion.button
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.14, duration: 0.5 }}
+            whileHover={{ y: -2 }}
+            onClick={onOpenProgress}
+            className="card"
+            style={{
+              padding: "18px 22px", cursor: "pointer", textAlign: "left",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+              borderTop: "2px solid var(--calm)", background: "rgba(116,185,160,0.04)",
+            }}
+          >
+            <div>
+              <div style={{ fontFamily: "var(--display)", fontSize: 20, color: "var(--text)" }}>View your progress</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--muted)", letterSpacing: "0.06em", marginTop: 4 }}>
+                Trends over time, current focus area, and what you've built up
+              </div>
+            </div>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 20, color: "var(--calm)" }}>→</span>
+          </motion.button>
+        )}
 
         {/* New session CTA */}
         <motion.div
@@ -900,7 +715,7 @@ export default function Dashboard({ user, onNewSession, getIdToken }) {
       </div>
 
       <AnimatePresence>
-        {viewing && <PastSessionModal session={viewing} onClose={() => setViewing(null)} />}
+        {viewing && <PastSessionModal session={viewing} onClose={() => setViewing(null)} getIdToken={getIdToken} />}
       </AnimatePresence>
     </motion.div>
   );

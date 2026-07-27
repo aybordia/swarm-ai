@@ -3,6 +3,7 @@
 // fresh per session by the LLM. All personas are fictional and labeled so.
 import { callLLM, parseJSON } from "../lib/llm.js";
 import { VOICE_IDS } from "../lib/elevenlabs.js";
+import { getModule } from "../modules/index.js";
 
 // Matches the frontend token system: honey, sage, sky, rose, lilac (all muted)
 const PALETTE = ["#E4A339", "#74B9A0", "#8FB6E8", "#D98B8B", "#B39BD8"];
@@ -50,12 +51,12 @@ Hard rules:
 - question_focus values must be varied across the set (mix of technical/behavioral/motivational/mixed as appropriate to the interview type).
 - Ground the question STYLE (not identity) in generically known patterns for this interview type: e.g., behavioral-heavy for university admissions, one light technical thread for engineering roles.`;
 
-function fallbackPersonas(n, mode = "interview") {
-  if (mode === "conversation") {
+function fallbackPersonas(n, module) {
+  if (!module.evaluative && module.partnerTitle) {
     return [{
-      name: "Your conversation partner",
-      title: "Conversation partner",
-      personality_style: "Relaxed and friendly; follows your lead and keeps the chat easygoing.",
+      name: `Your ${module.partnerTitle.toLowerCase()}`,
+      title: module.partnerTitle,
+      personality_style: "Relaxed and friendly; follows your lead and keeps things easygoing.",
       question_focus: "mixed",
     }];
   }
@@ -84,12 +85,15 @@ const TONES = {
   challenging: "All personas are direct and high-pressure: terse follow-ups, brisk pacing, little small talk, they press hard for specifics and push back on vague answers. Firm but never mocking or hostile.",
 };
 
-export async function generatePersonas({ intent = {}, situation = "", mode = "interview", tone = "neutral" }) {
-  const n = mode === "conversation" ? 1 : Math.min(Math.max(Number(intent.num_interviewers) || 3, 1), 5);
+export async function generatePersonas({ intent = {}, situation = "", mode = "interview", tone = "neutral", module }) {
+  const mod = module || getModule(mode);
+  const { min = 1, max = 5 } = mod.personaCount || {};
+  const fallbackN = mod.evaluative ? 3 : min;
+  const n = Math.min(Math.max(Number(intent.num_interviewers) || fallbackN, min), max);
   const toneRule = TONES[tone] || TONES.neutral;
   const context = [
-    mode === "conversation"
-      ? `Purpose: a relaxed, casual conversation-practice partner (small talk, everyday back-and-forth). NOT an interviewer, NOT evaluative. Invent a friendly, easygoing fictional person (title like "Conversation partner"), with an approachable personality_style and question_focus "mixed".`
+    !mod.evaluative
+      ? mod.systemPromptFragment
       : `Interview tone selected by the candidate: ${tone}. ${toneRule}`,
     intent?.institution && `Institution/company: ${intent.institution}`,
     intent?.program_type && `Program type: ${intent.program_type}`,
@@ -117,13 +121,13 @@ Output JSON now.`,
           .slice(0, n)
           .filter(p => p?.name && p?.title)
           .map(p => ({ ...p, name: String(p.name).replace(/[,;:.\s]+$/g, "").trim() }));
-        if (personas.length < n) personas = [...personas, ...fallbackPersonas(n - personas.length, mode)];
+        if (personas.length < n) personas = [...personas, ...fallbackPersonas(n - personas.length, mod)];
       }
     } catch (e) {
       console.error(`[personaGenerator] attempt ${attempt + 1} failed:`, e.message);
     }
   }
-  if (!personas) personas = fallbackPersonas(n, mode);
+  if (!personas) personas = fallbackPersonas(n, mod);
 
   // Map each persona to a distinct ElevenLabs voice + a distinct delivery profile
   const voices = shuffled(Object.values(VOICE_IDS));

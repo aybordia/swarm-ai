@@ -58,15 +58,16 @@ export async function getSessions(userId) {
   return fileRead(userId).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function saveSession(userId, { situation, history, debrief, sessionData }) {
+export async function saveSession(userId, { situation, history, debrief, sessionData, metricsSnapshot }) {
   const session = {
     id: crypto.randomUUID(),
     userId,
     situation,
-    history:     history     || [],
-    debrief:     debrief     || null,
-    sessionData: sessionData || null,
-    createdAt:   Date.now(),
+    history:         history         || [],
+    debrief:         debrief         || null,
+    sessionData:     sessionData     || null,
+    metricsSnapshot: metricsSnapshot || null,
+    createdAt:       Date.now(),
   };
 
   const database = await getDB();

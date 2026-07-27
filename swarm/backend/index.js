@@ -14,6 +14,14 @@ import feedback from "./routes/feedback.js";
 import parseIntentRoute from "./routes/parseIntent.js";
 import { peerJoin, peerStatus, peerCancel, peerEnd, peerReport, peerBlock } from "./routes/peer.js";
 import { getProfileRoute, saveProfileRoute } from "./routes/profile.js";
+import modulesRoute from "./routes/modules.js";
+import {
+  getCommunicationProfileRoute,
+  patchPreferencesRoute,
+  confirmFocusAreaRoute,
+  exportCommunicationProfileRoute,
+  deleteCommunicationProfileRoute,
+} from "./routes/communicationProfile.js";
 import { verifyToken } from "./googleAuth.js";
 
 const app = express();
@@ -54,6 +62,12 @@ app.get("/api/sessions/:id", verifyToken, getSessionRoute);
 app.post("/api/feedback", verifyToken, feedback);
 app.get("/api/profile", verifyToken, getProfileRoute);
 app.post("/api/profile", verifyToken, saveProfileRoute);
+app.get("/api/modules", verifyToken, modulesRoute);
+app.get("/api/communication-profile", verifyToken, getCommunicationProfileRoute);
+app.post("/api/communication-profile/preferences", verifyToken, patchPreferencesRoute);
+app.post("/api/communication-profile/focus-area", verifyToken, confirmFocusAreaRoute);
+app.get("/api/communication-profile/export", verifyToken, exportCommunicationProfileRoute);
+app.post("/api/communication-profile/delete", verifyToken, deleteCommunicationProfileRoute);
 app.post("/api/peer/queue", verifyToken, peerJoin);
 app.get("/api/peer/status", verifyToken, peerStatus);
 app.post("/api/peer/cancel", verifyToken, peerCancel);

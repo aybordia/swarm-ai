@@ -4,6 +4,7 @@ import { generatePersonas } from "./personaGenerator.js";
 import { composeSessionQuestions } from "../lib/questionBank.js";
 import { parseIntent } from "./intentParser.js";
 import { callLLM, parseJSON } from "../lib/llm.js";
+import { getModule } from "../modules/index.js";
 
 // Assign each question to the persona whose focus matches, balancing load
 function assignQuestions(questions, personas) {
@@ -58,9 +59,11 @@ function callLLMForParts(questions, intent) {
   });
 }
 
-export async function runArchitect({ situation, intent = null, mode = "interview", tone = "neutral", supportLevel = "guided", researcherOutput, styleHint, asdProfileHint = "", researchContext }, writeChunk) {
+export async function runArchitect({ situation, intent = null, mode = "interview", tone = "neutral", supportLevel = "guided", researcherOutput, styleHint, asdProfileHint = "", communicationProfileHint = null, researchContext }, writeChunk) {
+  const module = getModule(mode);
+
   // Derive structured intent server-side if the client didn't send one
-  if (!intent && mode !== "conversation") {
+  if (!intent && module.usesQuestionBank) {
     writeChunk({ agent: "Architect", chunk: "Understanding your request…", thinking: true });
     try {
       intent = await parseIntent({ transcript: situation });
@@ -71,31 +74,29 @@ export async function runArchitect({ situation, intent = null, mode = "interview
 
   writeChunk({
     agent: "Architect",
-    chunk: mode === "conversation" ? "Setting up your conversation partner…" : "Inventing your fictional interview panel…",
+    chunk: module.evaluative ? "Inventing your fictional interview panel…" : "Setting up your conversation partner…",
     thinking: true,
   });
-  const personas = await generatePersonas({ intent, situation, mode, tone });
+  const personas = await generatePersonas({ intent, situation, mode, tone, module });
 
-  // Conversation mode: open-ended, no question bank, no plan to march through
+  // Non-question-bank modules: open-ended, no plan to march through
   let questions = [];
-  if (mode !== "conversation") {
+  if (module.usesQuestionBank) {
     writeChunk({ agent: "Architect", chunk: "Composing your question set…", thinking: true });
     const totalQuestions = Math.max(4, personas.length);
+    const domain = module.questionBankTags?.domain || intent?.domain || "general";
     let bankQuestions;
     try {
-      bankQuestions = await composeSessionQuestions({
-        domain: intent?.domain || "general",
-        totalQuestions,
-        intent,
-      });
+      bankQuestions = await composeSessionQuestions({ domain, totalQuestions, intent });
     } catch (e) {
       console.error("[architect] question composition failed:", e.message);
       bankQuestions = (await composeSessionQuestions({ domain: "general", totalQuestions, intent: null, useLLM: false }));
     }
     questions = assignQuestions(bankQuestions, personas);
 
-    // Guided support level: attach the explicit expectations for each question
-    if (supportLevel === "guided") {
+    // Guided support level (evaluative modules only): attach the explicit
+    // expectations for each question
+    if (module.evaluative && supportLevel === "guided") {
       writeChunk({ agent: "Architect", chunk: "Making the hidden expectations of each question explicit…", thinking: true });
       questions = await addExplicitParts(questions, intent);
     }
@@ -109,18 +110,19 @@ export async function runArchitect({ situation, intent = null, mode = "interview
     situation,
     intent,
     mode,
-    tone: mode === "conversation" ? null : tone,
-    supportLevel: mode === "conversation" ? null : supportLevel,
+    tone: module.evaluative ? tone : null,
+    supportLevel: module.evaluative ? supportLevel : null,
     asdProfileHint,   // self-set profile directives, applied by the live interviewer / partner
-    sessionSummary: mode === "conversation"
-      ? `Casual conversation practice: ${situation}`
+    communicationProfileHint, // learned pacing/branching thresholds (Feature 4 branching interviewer)
+    sessionSummary: !module.evaluative
+      ? `${module.label} practice: ${situation}`
       : intent?.institution
       ? `Practice ${intent.program_type || ""} interview for ${intent.institution} with ${personas.length} simulated interviewer${personas.length > 1 ? "s" : ""}.`
       : `Practice session for: ${situation}`,
     personas,
     sessionPlan: {
       difficultyProgression: "gentle-start",
-      totalEstimatedMinutes: mode === "conversation" ? 15 : Math.max(5, questions.length + 1),
+      totalEstimatedMinutes: module.sessionLengthMinutes || Math.max(5, questions.length + 1),
       questions,
     },
     openingLine: "",

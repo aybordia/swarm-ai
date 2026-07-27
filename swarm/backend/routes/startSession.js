@@ -1,6 +1,8 @@
 import { runResearcher } from "../agents/researcher.js";
 import { runArchitect } from "../agents/architect.js";
 import { getPrefs, buildInterviewStyleHint, getAsdProfile, buildAsdProfileHint } from "../lib/prefsStore.js";
+import { getCommunicationProfile } from "../lib/communicationProfileStore.js";
+import { getModule } from "../modules/index.js";
 
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "text/event-stream");
@@ -30,20 +32,39 @@ export default async function handler(req, res) {
   const styleHint = buildInterviewStyleHint(userPrefs);
   if (styleHint) console.log(`[startSession] injecting style prefs for user=${userId} (${userPrefs.sessionCount} sessions)`);
 
+  const module = getModule(mode);
+
   // The user's self-set ASD communication profile — the core personalization.
   // Baked into the session context so the live interviewer adapts to THIS person.
   const asdProfile = userId ? getAsdProfile(userId) : null;
-  const asdProfileHint = buildAsdProfileHint(asdProfile, mode === "conversation" ? "conversation" : "interview");
+  const asdProfileHint = buildAsdProfileHint(asdProfile, module.evaluative ? "interview" : "conversation");
   if (asdProfileHint) console.log(`[startSession] injecting ASD profile for user=${userId}`);
+
+  // The learned communication profile — a small plain object (not prose, the
+  // judge needs strugglesAfterNFollowups programmatically), threaded the same
+  // way asdProfileHint is baked in, so the branching interviewer (Feature 4)
+  // can respect the user's own learned pacing rather than a generic default.
+  let communicationProfileHint = null;
+  if (userId) {
+    try {
+      const profile = await getCommunicationProfile(userId);
+      communicationProfileHint = {
+        strugglesAfterNFollowups: profile.user_preferences_learned?.struggles_after_n_followups ?? null,
+        prefersLongerThinkingTime: !!profile.user_preferences_learned?.prefers_longer_thinking_time,
+      };
+    } catch (e) {
+      console.error("[startSession] communication profile load failed:", e.message);
+    }
+  }
 
   // Keepalive: send a heartbeat every 8s so Render's proxy never kills
   // the SSE connection during rate-limit waits between agent LLM calls
   const keepalive = setInterval(() => writeChunk({ heartbeat: true }), 8000);
 
   try {
-    // Conversation mode: no research, no agent theater — one calm setup step
-    if (mode === "conversation") {
-      await runArchitect({ situation, intent, mode, tone, supportLevel, researcherOutput: null, styleHint: null, asdProfileHint, researchContext: {} }, writeChunk);
+    // Modules that skip research: no research, no agent theater — one calm setup step
+    if (module.skipResearch) {
+      await runArchitect({ situation, intent, mode, tone, supportLevel, researcherOutput: null, styleHint: null, asdProfileHint, communicationProfileHint, researchContext: {} }, writeChunk);
       return;
     }
 
@@ -77,7 +98,7 @@ export default async function handler(req, res) {
     writeChunk({ agent: "VoiceDesigner", done: true });
 
     await sleep(300);
-    await runArchitect({ situation, intent, mode, tone, supportLevel, researcherOutput, styleHint, asdProfileHint, researchContext }, writeChunk);
+    await runArchitect({ situation, intent, mode, tone, supportLevel, researcherOutput, styleHint, asdProfileHint, communicationProfileHint, researchContext }, writeChunk);
 
   } catch (err) {
     console.error("startSession error:", err);

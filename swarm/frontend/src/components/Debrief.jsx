@@ -40,7 +40,7 @@ const fadeUp = (delay = 0) => ({
   transition: { duration: 0.55, delay, ease: [0.16, 1, 0.3, 1] },
 });
 
-export default function Debrief({ sessionResult, situation, onRunAgain, onAskSwarm, getIdToken }) {
+export default function Debrief({ sessionResult, situation, onRunAgain, onAskSwarm, onPracticeThisNow, getIdToken }) {
   const [debrief, setDebrief] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -59,8 +59,15 @@ export default function Debrief({ sessionResult, situation, onRunAgain, onAskSwa
   const history = sessionResult?.history || [];
   const sessionData = sessionResult?.sessionData || null;
   const signalData = sessionResult?.signalData || null;
+  const turnMetrics = sessionResult?.turnMetrics || [];
+  const extendTimeUsed = !!sessionResult?.extendTimeUsed;
   const personas = sessionData?.personas || [];
-  const isConvo = sessionData?.mode === "conversation";
+  // Non-evaluative modules (conversation, networking, …) get a null tone from
+  // the architect — reuse that signal, and fall back to the debrief response's
+  // own mode field once it's loaded (mode:"interview" only for evaluative
+  // modules — see backend/routes/debrief.js), so any current or future
+  // non-evaluative module renders the same low-stakes recap view.
+  const isConvo = !sessionData?.tone || (debrief && debrief.mode !== "interview");
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -115,7 +122,7 @@ export default function Debrief({ sessionResult, situation, onRunAgain, onAskSwa
     setSaveStatus("saving");
     try {
       const token = await getIdToken();
-      const result = await postJSON("/api/sessions/save", { situation, history, debrief, sessionData }, token);
+      const result = await postJSON("/api/sessions/save", { situation, history, debrief, sessionData, turnMetrics, extendTimeUsed }, token);
       setSavedSessionId(result.id);
       setSaveStatus("saved");
     } catch (e) {
@@ -339,6 +346,53 @@ export default function Debrief({ sessionResult, situation, onRunAgain, onAskSwa
                 </div>
               ))}
             </div>
+          </motion.div>
+        )}
+
+        {/* Question-by-question teaching breakdown — a concrete stronger
+            version of each answer, why it works, and a way to practice it
+            immediately. Content/structure coaching only. */}
+        {(debrief?.question_breakdown || []).length > 0 && (
+          <motion.div {...fadeUp(0.18)} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--muted)", letterSpacing: "0.16em" }}>
+              QUESTION-BY-QUESTION BREAKDOWN
+            </div>
+            {debrief.question_breakdown.map((qb, i) => (
+              <motion.div key={i} {...fadeUp(0.2 + i * 0.05)} className="card" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 12, borderTop: "2px solid var(--honey)" }}>
+                <p style={{ fontFamily: "var(--ui)", fontWeight: 400, fontSize: 18, color: "var(--text)", lineHeight: 1.6 }}>
+                  "{qb.question}"
+                </p>
+                {qb.what_worked && (
+                  <div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--calm)", letterSpacing: "0.1em", marginBottom: 4 }}>WHAT WORKED</div>
+                    <p style={{ fontFamily: "var(--ui)", fontWeight: 300, fontSize: 18, lineHeight: 1.65, color: "var(--text-2)" }}>{qb.what_worked}</p>
+                  </div>
+                )}
+                {qb.stronger_version && (
+                  <div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--honey)", letterSpacing: "0.1em", marginBottom: 4 }}>A STRONGER VERSION</div>
+                    <p style={{
+                      fontFamily: "var(--ui)", fontWeight: 300, fontSize: 18, lineHeight: 1.7, color: "var(--text)",
+                      padding: "12px 14px", borderRadius: 10, background: "var(--honey-soft)", border: "1px solid rgba(228,163,57,0.25)",
+                    }}>
+                      "{qb.stronger_version}"
+                    </p>
+                  </div>
+                )}
+                {qb.why_it_works && (
+                  <div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--muted)", letterSpacing: "0.1em", marginBottom: 4 }}>WHY IT WORKS</div>
+                    <p style={{ fontFamily: "var(--ui)", fontWeight: 300, fontSize: 18, lineHeight: 1.65, color: "var(--text-2)" }}>{qb.why_it_works}</p>
+                  </div>
+                )}
+                {qb.practice_prompt && onPracticeThisNow && (
+                  <button className="btn btn-primary" onClick={() => onPracticeThisNow(qb.practice_prompt)}
+                    style={{ alignSelf: "flex-start", height: 44, padding: "0 18px", fontSize: 17 }}>
+                    Practice this now →
+                  </button>
+                )}
+              </motion.div>
+            ))}
           </motion.div>
         )}
 

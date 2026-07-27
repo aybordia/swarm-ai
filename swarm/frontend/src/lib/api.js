@@ -72,6 +72,24 @@ export async function postJSON(url, body, token) {
   return response.json();
 }
 
+// Triggers a browser download of a JSON response (used for the communication
+// profile export — "full profile export" requirement).
+export async function downloadJSON(url, token, filename = "download.json") {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${BASE_URL}${url}`, { headers });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export async function getJSON(url, token) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;

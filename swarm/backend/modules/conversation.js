@@ -1,0 +1,15 @@
+export default {
+  key: "conversation",
+  label: "Casual",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Conversation partner",
+  sessionLengthMinutes: 15,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: a relaxed, casual conversation-practice partner (small talk, everyday back-and-forth). NOT an interviewer, NOT evaluative. Invent a friendly, easygoing fictional person (title like "Conversation partner"), with an approachable personality_style and question_focus "mixed".`,
+  relevantMetrics: ["avg_speaking_pace_wpm", "filler_word_rate"],
+  branchingEnabled: false,
+  implemented: true,
+};

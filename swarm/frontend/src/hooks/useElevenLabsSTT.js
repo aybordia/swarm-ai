@@ -10,6 +10,14 @@ export function useElevenLabsSTT({ onResult, onSilence, silenceThresholdMs = 300
   const analyserRef = useRef(null);
   const animFrameRef = useRef(null);
   const wantListening = useRef(false);
+  const silenceThresholdRef = useRef(silenceThresholdMs);
+
+  // Turn-level timing, used to derive speaking pace / response latency
+  // (communication profile instrumentation) without any new tracking infra —
+  // reuses the silence-detection analyser loop that already runs every frame.
+  const recordingStartRef = useRef(null);
+  const speechStartRef = useRef(null);
+  const lastSpeechRef = useRef(null);
 
   const onResultRef = useRef(onResult);
   const onSilenceRef = useRef(onSilence);
@@ -40,7 +48,13 @@ export function useElevenLabsSTT({ onResult, onSilence, silenceThresholdMs = 300
       if (!res.ok) throw new Error(`ElevenLabs STT error: ${res.status}`);
       const data = await res.json();
       const text = data.text?.trim();
-      if (text) onResultRef.current?.(text);
+      if (text) {
+        onResultRef.current?.(text, {
+          recordingStartedAt: recordingStartRef.current,
+          speechStartedAt: speechStartRef.current,
+          lastSpeechAt: lastSpeechRef.current,
+        });
+      }
     } catch (e) {
       console.error("[stt] transcription failed:", e);
       setMicError(e.message.includes("API key") ? "ElevenLabs API key not configured — check Vercel env vars." : "Transcription failed. Please try again.");
@@ -66,6 +80,10 @@ export function useElevenLabsSTT({ onResult, onSilence, silenceThresholdMs = 300
   const start = useCallback(async () => {
     setMicError(null);
     wantListening.current = true;
+    silenceThresholdRef.current = silenceThresholdMs;
+    recordingStartRef.current = Date.now();
+    speechStartRef.current = null;
+    lastSpeechRef.current = null;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -90,12 +108,14 @@ export function useElevenLabsSTT({ onResult, onSilence, silenceThresholdMs = 300
 
         if (avg < 20) {
           if (!silenceStart) silenceStart = Date.now();
-          if (Date.now() - silenceStart >= silenceThresholdMs) {
+          if (Date.now() - silenceStart >= silenceThresholdRef.current) {
             onSilenceRef.current?.();
             stop();
             return;
           }
         } else {
+          if (!speechStartRef.current) speechStartRef.current = Date.now();
+          lastSpeechRef.current = Date.now();
           silenceStart = null;
         }
         animFrameRef.current = requestAnimationFrame(checkSilence);
@@ -134,5 +154,12 @@ export function useElevenLabsSTT({ onResult, onSilence, silenceThresholdMs = 300
     }
   }, [silenceThresholdMs, stop, transcribe]);
 
-  return { start, stop, isListening, isProcessing, micError, analyserRef };
+  // Doubles the silence threshold for the in-flight recording only (resets to
+  // the configured default on the next start()) — the concrete signal behind
+  // the "I need more time" pacing control.
+  const requestMoreTime = useCallback(() => {
+    silenceThresholdRef.current = silenceThresholdRef.current * 2;
+  }, []);
+
+  return { start, stop, isListening, isProcessing, micError, analyserRef, requestMoreTime };
 }

@@ -4,6 +4,7 @@ import { Microphone, Stop, CircleNotch } from "@phosphor-icons/react";
 import { useElevenLabsSTT } from "../hooks/useElevenLabsSTT";
 import { postJSON } from "../lib/api";
 import { speakText } from "../hooks/useVoiceOutput";
+import ContinuityPrompt from "./ContinuityPrompt";
 
 // Neutral product voice for the setup assistant (not a persona)
 const SETUP_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
@@ -40,8 +41,11 @@ const sv = {
   exit:    { opacity: 0, scale: 1.005, filter: "blur(8px)", transition: { duration: 0.35 } },
 };
 
-export default function SituationInput({ onLaunch, onBack, initialSituation = "", getIdToken, mode = "interview" }) {
-  const isConvo = mode === "conversation";
+export default function SituationInput({ onLaunch, onBack, initialSituation = "", getIdToken, mode = "interview", moduleInfo = null }) {
+  // moduleInfo comes from GET /api/modules (fetched once in App.jsx) — falls
+  // back to the old hardcoded check if it hasn't loaded yet, and generalizes
+  // to any non-evaluative module (networking, …), not just "conversation".
+  const isConvo = moduleInfo ? !moduleInfo.evaluative : mode === "conversation";
   const examples = isConvo ? CONVO_EXAMPLES : EXAMPLES;
   const [situation, setSituation] = useState(initialSituation);
   const [tone, setTone] = useState("neutral");
@@ -181,6 +185,8 @@ export default function SituationInput({ onLaunch, onBack, initialSituation = ""
                 {isConvo ? "Your topic." : "Your interview."}
               </motion.h1>
             </div>
+
+            {!isConvo && <ContinuityPrompt getIdToken={getIdToken} />}
 
             {/* Input console */}
             <motion.div

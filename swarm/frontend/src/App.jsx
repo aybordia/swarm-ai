@@ -8,6 +8,7 @@ import VoiceSession from "./components/VoiceSession";
 import Debrief from "./components/Debrief";
 import AskSwarm from "./components/AskSwarm";
 import Dashboard from "./components/Dashboard";
+import ProgressView from "./components/ProgressView";
 import SignIn from "./components/SignIn";
 import ProfileSetup from "./components/ProfileSetup";
 import { stopAllAudio } from "./hooks/useVoiceOutput";
@@ -15,6 +16,7 @@ import { getJSON } from "./lib/api";
 
 const SCREENS = {
   DASHBOARD:       "DASHBOARD",
+  PROGRESS:        "PROGRESS",
   PROFILE:         "PROFILE",
   MODE_SELECT:     "MODE_SELECT",
   PEER:            "PEER",
@@ -117,6 +119,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "dark");
   const [profileSet, setProfileSet] = useState(null);   // null = unknown, false = never set, true = set/dismissed
   const [pendingMode, setPendingMode] = useState(null); // mode to resume after first-time profile setup
+  const [moduleMeta, setModuleMeta] = useState({});     // key -> { evaluative, skipResearch, implemented, label }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -176,6 +179,25 @@ export default function App() {
         if (!cancelled) setProfileSet(!!profile?.set);
       } catch {
         if (!cancelled) setProfileSet(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, token]);
+
+  // Module registry, fetched once — lets SituationInput/MissionControl adapt
+  // generically (evaluative vs not, research vs not) to any module the
+  // backend defines, instead of hardcoding `mode === "conversation"`.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { modules } = await getJSON("/api/modules", token);
+        if (!cancelled && Array.isArray(modules)) {
+          setModuleMeta(Object.fromEntries(modules.map(m => [m.key, m])));
+        }
+      } catch {
+        /* SituationInput/MissionControl fall back to mode === "conversation" */
       }
     })();
     return () => { cancelled = true; };
@@ -245,6 +267,27 @@ export default function App() {
     stopAllAudio();
     setDebriefResult(debrief);
     setScreen(SCREENS.ASK_SWARM);
+  };
+
+  // "Practice this now" (Feature 3) — reopens a mini-session for just one
+  // practice_prompt, reusing the original session's personas/mode/tone/
+  // supportLevel entirely client-side. Zero LLM calls: skips intent parsing,
+  // research, and persona generation completely, unlike a normal new session.
+  const handlePracticeThisNow = (practicePrompt) => {
+    const base = sessionResult?.sessionData;
+    if (!base || !practicePrompt) return;
+    stopAllAudio();
+    setSessionData({
+      ...base,
+      sessionPlan: {
+        ...base.sessionPlan,
+        questions: [{ text: practicePrompt, type: "behavioral", assignedPersona: base.personas?.[0]?.name || null }],
+        totalEstimatedMinutes: 5,
+      },
+    });
+    setSessionResult(null);
+    setDebriefResult(null);
+    setScreen(SCREENS.VOICE_SESSION);
   };
 
   const handleRunAgain = () => {
@@ -336,7 +379,10 @@ export default function App() {
       ) : (
         <AnimatePresence mode="wait">
           {screen === SCREENS.DASHBOARD && (
-            <Dashboard key="dashboard" user={user} onNewSession={handleNewSession} getIdToken={getIdToken} />
+            <Dashboard key="dashboard" user={user} onNewSession={handleNewSession} onOpenProgress={() => setScreen(SCREENS.PROGRESS)} getIdToken={getIdToken} />
+          )}
+          {screen === SCREENS.PROGRESS && (
+            <ProgressView key="progress" onBack={handleBackToDashboard} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.PROFILE && (
             <ProfileSetup
@@ -348,22 +394,22 @@ export default function App() {
             />
           )}
           {screen === SCREENS.MODE_SELECT && (
-            <ModeSelect key="mode" onSelect={handleModeSelect} onBack={handleBackToDashboard} />
+            <ModeSelect key="mode" onSelect={handleModeSelect} onBack={handleBackToDashboard} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.PEER && (
             <PeerSession key="peer" getIdToken={getIdToken} onExit={handleBackToDashboard} />
           )}
           {screen === SCREENS.SITUATION_INPUT && (
-            <SituationInput key="input" mode={mode} onLaunch={handleLaunch} initialSituation={situation} onBack={() => setScreen(SCREENS.MODE_SELECT)} getIdToken={getIdToken} />
+            <SituationInput key="input" mode={mode} moduleInfo={moduleMeta[mode]} onLaunch={handleLaunch} initialSituation={situation} onBack={() => setScreen(SCREENS.MODE_SELECT)} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.MISSION_CONTROL && (
-            <MissionControl key="mission" situation={situation} intent={intent} mode={mode} tone={tone} supportLevel={supportLevel} onBeginSession={handleBeginSession} getIdToken={getIdToken} />
+            <MissionControl key="mission" situation={situation} intent={intent} mode={mode} moduleInfo={moduleMeta[mode]} tone={tone} supportLevel={supportLevel} onBeginSession={handleBeginSession} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.VOICE_SESSION && (
             <VoiceSession key="session" sessionData={sessionData} situation={situation} onEndSession={handleEndSession} getIdToken={getIdToken} timedMode={timedMode} />
           )}
           {screen === SCREENS.DEBRIEF && (
-            <Debrief key="debrief" sessionResult={sessionResult} situation={situation} onRunAgain={handleRunAgain} onAskSwarm={handleAskSwarm} getIdToken={getIdToken} />
+            <Debrief key="debrief" sessionResult={sessionResult} situation={situation} onRunAgain={handleRunAgain} onAskSwarm={handleAskSwarm} onPracticeThisNow={handlePracticeThisNow} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.ASK_SWARM && (
             <AskSwarm key="ask" sessionResult={sessionResult} situation={situation} debrief={debriefResult} onRunAgain={handleRunAgain} getIdToken={getIdToken} />

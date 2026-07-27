@@ -4,6 +4,7 @@
 // uses obviously-placeholder specifics so it's a shape to copy, not a script
 // to memorize or repeat verbatim.
 import { callLLM, parseJSON } from "../lib/llm.js";
+import { TRACKING_SYSTEM_RULES } from "../lib/observationRules.js";
 
 const SYSTEM_PROMPT = `You help an autistic (ASD) interview candidate answer ONE specific interview question. Return ONLY valid JSON:
 {"steps":[{"label":"...","hint":"..."}],"example":"..."}
@@ -13,7 +14,7 @@ Rules:
 - "steps": 3-5 short parts a strong answer to THIS question includes. Each label is 1-4 words; each hint is one literal sentence, plain wording, no idioms or metaphors.
 - "example": one worked example answer to THIS question, 2-4 sentences, in the first person. Use clearly generic placeholders in [square brackets] for anything personal (e.g. "[the project]", "[my teammate]") so the candidate adapts it rather than copies it. It must directly answer the question asked.
 - If the question is deliberately vague/ambiguous, the first step is to ask which meaning is intended, and the example starts by asking for clarification.
-- Never coach confidence, eye contact, tone, or "being natural". Content only.`;
+${TRACKING_SYSTEM_RULES}`;
 
 export default async function handler(req, res) {
   const { question, situation = "" } = req.body || {};

@@ -4,6 +4,7 @@ import { streamFetch, postJSON } from "../lib/api";
 import { speakText, stopAllAudio } from "../hooks/useVoiceOutput";
 import { useElevenLabsSTT } from "../hooks/useElevenLabsSTT";
 import { useMultimodalTracking } from "../tracking/useMultimodalTracking";
+import { countFillerWords } from "../lib/fillerWords";
 import PanelRail, { QuestionRail } from "./PanelRail";
 
 const sv = {
@@ -329,6 +330,14 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
   const isBusyRef = useRef(false);
   const hasInitRef = useRef(false);
   const sessionEndedRef = useRef(false);
+  const audioResolveRef = useRef(null);
+
+  // Communication-profile instrumentation — derived turn timing/word data
+  // only, never audio itself. See backend/lib/communicationProfileStore.js.
+  const turnMetricsRef = useRef([]);
+  const followupIndexRef = useRef(0);
+  const interruptionsPendingRef = useRef(0);
+  const extendTimeUsedRef = useRef(false);
 
   const [cameraNote, setCameraNote] = useState("");
   const tracking = useMultimodalTracking();
@@ -337,7 +346,11 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
   const signalDataRef = useRef(null);
 
   const personas = sessionData?.personas || [];
-  const isConvo = sessionData?.mode === "conversation";
+  // Non-evaluative modules (conversation, networking, …) always get a null
+  // tone/supportLevel from the architect (see backend/modules/*.js
+  // `evaluative` flag) — reuse that signal instead of hardcoding "conversation"
+  // so any current or future non-evaluative module behaves the same way here.
+  const isConvo = !sessionData?.tone;
   const sessionTone = sessionData?.tone || "neutral";
   const supportLevel = sessionData?.supportLevel || "guided";
   // Visible written questions are a research-backed accommodation (Bath);
@@ -357,6 +370,8 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
     let resVoiceId = null;
     let resVoiceSettings = null;
     let resQuestionType = null;
+    let resQuestionIndex = null;
+    let resSessionAdvancing = false;
 
     try {
       const token = await getIdToken();
@@ -371,11 +386,13 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
         if (chunk.persona) { resPersona = chunk.persona; resVoiceId = chunk.voiceId; resVoiceSettings = chunk.voiceSettings; setCurrentPersona(chunk.persona); }
         // Keep only the TYPE from the plan (for the template category). The
         // question TEXT shown must be what the persona ACTUALLY asks, set below.
-        if (chunk.question) resQuestionType = chunk.question.type;
+        if (chunk.question) { resQuestionType = chunk.question.type; resQuestionIndex = chunk.question.index; }
         if (chunk.done) {
+          resSessionAdvancing = !!chunk.sessionAdvancing;
           if (chunk.sessionAdvancing) {
             questionIndexRef.current += 1;
             setQuestionNum(questionIndexRef.current);
+            followupIndexRef.current = 0;
           }
           if (chunk.sessionComplete) { sessionCompleteRef.current = true; setSessionComplete(true); }
         }
@@ -391,7 +408,14 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
         return;
       }
 
-      const aiTurn = { speaker: resPersona || "Panel", text: fullLine, timestamp: Date.now() };
+      // questionIndex/isAdvancing let the backend replay history to derive
+      // branch/follow-up state statelessly (see judgeOrchestrator.js
+      // deriveQuestionState) instead of dividing by a fixed turns-per-question
+      // constant, now that follow-up depth varies with branching.
+      const aiTurn = {
+        speaker: resPersona || "Panel", text: fullLine, timestamp: Date.now(),
+        questionIndex: resQuestionIndex, isAdvancing: resSessionAdvancing,
+      };
       historyRef.current = [...historyRef.current, aiTurn];
       setHistory([...historyRef.current]);
 
@@ -407,10 +431,14 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
       if (audio && typeof audio.play === "function") {
         currentAudio.current = audio;
         await new Promise(res => {
+          // "Respond now" (interruption control) resolves this early via
+          // audioResolveRef instead of waiting for natural playback end.
+          audioResolveRef.current = res;
           audio.onended = res;
           audio.onerror = res;
           audio.play().catch(res);
         });
+        audioResolveRef.current = null;
       }
       setDisplayLine("");
     } catch (e) {
@@ -427,9 +455,35 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionData, getIdToken]);
 
-  const { start, stop, isListening, isProcessing, micError, analyserRef } = useElevenLabsSTT({
-    onResult: async (spokenText) => {
+  const { start, stop, isListening, isProcessing, micError, analyserRef, requestMoreTime } = useElevenLabsSTT({
+    onResult: async (spokenText, timing) => {
       if (isAISpeakingRef.current || isBusyRef.current || sessionCompleteRef.current || sessionEndedRef.current || !spokenText?.trim()) return;
+
+      // Turn-metric instrumentation for the communication profile — derived
+      // from STT timing + word count only, never audio itself.
+      if (timing) {
+        const { recordingStartedAt, speechStartedAt, lastSpeechAt } = timing;
+        const words = spokenText.trim().split(/\s+/).filter(Boolean).length;
+        const latencySec = Number.isFinite(speechStartedAt) && Number.isFinite(recordingStartedAt)
+          ? Math.max(0, (speechStartedAt - recordingStartedAt) / 1000) : null;
+        const answerDurationSec = Number.isFinite(lastSpeechAt) && Number.isFinite(speechStartedAt)
+          ? Math.max(0, (lastSpeechAt - speechStartedAt) / 1000) : null;
+        const paceWpm = answerDurationSec && answerDurationSec > 2 ? words / (answerDurationSec / 60) : null;
+        turnMetricsRef.current.push({
+          questionIndex: questionIndexRef.current,
+          questionType: currentQuestion?.type || null,
+          followupIndex: followupIndexRef.current,
+          words,
+          latencySec,
+          answerDurationSec,
+          paceWpm,
+          fillerCount: countFillerWords(spokenText),
+          interruptions: interruptionsPendingRef.current,
+        });
+        interruptionsPendingRef.current = 0;
+        followupIndexRef.current += 1;
+      }
+
       const userTurn = { speaker: "You", text: spokenText, timestamp: Date.now() };
       historyRef.current = [...historyRef.current, userTurn];
       setHistory([...historyRef.current]);
@@ -438,6 +492,27 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
     // Long default threshold: thinking pauses are normal and never cut off
     silenceThresholdMs: timedMode ? 70000 : 5000,
   });
+
+  // "Respond now" — the interruption control. Stops TTS playback immediately
+  // and lets the mic re-arm via sendTurn's existing post-playback flow, so the
+  // user can cut off a persona re-explaining something they already
+  // understood. Each use is counted (interruption_count metric), never judged.
+  const handleRespondNow = useCallback(() => {
+    if (!isAISpeakingRef.current) return;
+    interruptionsPendingRef.current += 1;
+    if (currentAudio.current) currentAudio.current.pause();
+    audioResolveRef.current?.();
+    audioResolveRef.current = null;
+  }, []);
+
+  // "I need more time" — the pause/extend-time pacing control. Doubles the
+  // silence threshold for the current answer only; usage feeds the
+  // prefers_longer_thinking_time signal. Branching (Feature 4) never gates on
+  // or overrides this.
+  const handleNeedMoreTime = useCallback(() => {
+    extendTimeUsedRef.current = true;
+    requestMoreTime();
+  }, [requestMoreTime]);
 
   const handleBegin = useCallback(async (withCamera = false) => {
     if (hasInitRef.current) return;
@@ -506,6 +581,8 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
     const doEnd = () => onEndSession({
       history, sessionData, situation,
       signalData: signalDataRef.current?.length ? signalDataRef.current : null,
+      turnMetrics: turnMetricsRef.current,
+      extendTimeUsed: extendTimeUsedRef.current,
     });
 
     if (currentAudio.current && !currentAudio.current.ended && !currentAudio.current.paused) {
@@ -860,6 +937,20 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
           )}
         </AnimatePresence>
 
+        {/* Pacing control: extend thinking time for this answer, no limit on uses */}
+        <AnimatePresence>
+          {isListening && !isProcessing && (
+            <motion.button
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              onClick={(e) => { e.stopPropagation(); handleNeedMoreTime(); }}
+              className="btn btn-ghost"
+              style={{ height: 40, fontSize: 15, padding: "0 16px", borderRadius: 999 }}
+            >
+              I need more time
+            </motion.button>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {isAISpeaking && (
             <motion.div
@@ -876,6 +967,21 @@ export default function VoiceSession({ sessionData, situation, onEndSession, get
                 {(activePersona?.name || "PANEL").split(/\s+/)[0].toUpperCase()} IS SPEAKING
               </span>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Interruption control: cut off a persona re-explaining something
+            already understood, rather than waiting out the full line */}
+        <AnimatePresence>
+          {isAISpeaking && (
+            <motion.button
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              onClick={(e) => { e.stopPropagation(); handleRespondNow(); }}
+              className="btn btn-ghost"
+              style={{ height: 40, fontSize: 15, padding: "0 16px", borderRadius: 999 }}
+            >
+              Respond now
+            </motion.button>
           )}
         </AnimatePresence>
       </div>
