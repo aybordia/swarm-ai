@@ -85,7 +85,11 @@ const TONES = {
   challenging: "All personas are direct and high-pressure: terse follow-ups, brisk pacing, little small talk, they press hard for specifics and push back on vague answers. Firm but never mocking or hostile.",
 };
 
-export async function generatePersonas({ intent = {}, situation = "", mode = "interview", tone = "neutral", module }) {
+export async function generatePersonas({ intent, situation = "", mode = "interview", tone = "neutral", module }) {
+  // Destructuring defaults only fire on `undefined` — non-evaluative launches
+  // (conversation, networking, and every new non-evaluative drill) explicitly
+  // pass `intent: null`, which skips the default and crashes on intent.* below.
+  intent = intent || {};
   const mod = module || getModule(mode);
   const { min = 1, max = 5 } = mod.personaCount || {};
   const fallbackN = mod.evaluative ? 3 : min;
