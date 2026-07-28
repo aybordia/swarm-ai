@@ -1,0 +1,15 @@
+export default {
+  key: "small_talk_and_openings",
+  label: "Small talk & openings",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Person you just met",
+  sessionLengthMinutes: 5,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: practice starting and ending conversations — the transitions people report as hardest, not the middle of the conversation. NOT an interviewer, NOT evaluative. Invent a friendly, easygoing fictional person (title like "Person you just met"), warm personality_style, question_focus "mixed". Give the user real opportunities to practice both ends: let them open the conversation, and when they signal they want to wrap up (directly or by trailing off), pick up on it and help close the conversation naturally rather than dragging it out. There is no one right way to open or close a conversation — never suggest a script is more "normal" than another.`,
+  relevantMetrics: ["avg_speaking_pace_wpm", "filler_word_rate"],
+  branchingEnabled: false,
+  implemented: true,
+};

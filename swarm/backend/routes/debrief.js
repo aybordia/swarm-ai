@@ -5,7 +5,7 @@
 import { callLLM, parseJSON } from "../lib/llm.js";
 import { summarizeSignals } from "../lib/signalSummary.js";
 import { getAsdProfile, buildAsdProfileHint } from "../lib/prefsStore.js";
-import { TRACKING_SYSTEM_RULES } from "../lib/observationRules.js";
+import { TRACKING_SYSTEM_RULES, formatObservation } from "../lib/observationRules.js";
 import { getModule } from "../modules/index.js";
 import { segmentTranscriptByQuestion } from "../lib/questionSegments.js";
 
@@ -50,9 +50,9 @@ ${TRACKING_SYSTEM_RULES}`;
 // than just observes — a concrete rewritten answer plus the reasoning behind
 // it, so the candidate can see exactly what a stronger version looks like and
 // why. Content/structure coaching only, same as everything else in this file.
-const TEACHING_PROMPT = `You write a per-question teaching breakdown for a private mock-interview debrief, for an autistic candidate (this tool is built specifically for ASD; literal, direct, concrete language only — no idioms, no metaphors).
+const TEACHING_PROMPT = `You write a per-exchange teaching breakdown for a private practice-session debrief, for an autistic candidate (this tool is built specifically for ASD; literal, direct, concrete language only — no idioms, no metaphors).
 Return ONLY valid JSON: {"question_breakdown":[{"what_worked":"...","stronger_version":"...","why_it_works":"...","practice_prompt":"..."}]}
-Return EXACTLY one object per question given, in the same order.
+Return EXACTLY one object per exchange given, in the same order.
 
 Rules:
 - "what_worked": one specific sentence naming something that worked in THIS answer, referencing what they actually said. If genuinely nothing worked, name their effort or an autistic strength (precision, honesty, directness) instead of inventing praise.
@@ -84,9 +84,55 @@ function describePacing(fullTranscript) {
 
   let s = "You gave yourself a fairly even amount of thinking time across questions.";
   if (longest.gap > median * 2) {
-    s = `You took noticeably more time on one question ("${longest.questionText.slice(0, 80)}${longest.questionText.length > 80 ? "…" : ""}") than on the others.`;
+    const clipped = `${longest.questionText.slice(0, 80)}${longest.questionText.length > 80 ? "…" : ""}`;
+    s = formatObservation({
+      kind: "context_compare",
+      metric: "thinking time before answering",
+      unit: "s",
+      valueA: longest.gap,
+      contextA: `on "${clipped}"`,
+      valueB: median,
+      contextB: "on other questions",
+    });
   }
   return `${s} Taking time to think is normal and works in real interviews too — saying "let me think about that for a moment" is always OK.`;
+}
+
+// Per-exchange content/structure coaching (Feature 4) — used for every drill,
+// evaluative or not. "Non-evaluative" (Feature 3) means no panel judgment or
+// score, not no useful feedback: a casual conversation still gets taught what
+// worked and a stronger version, just without persona_impressions/scoring.
+async function buildQuestionBreakdown({ fullTranscript, sessionPlan, situation, profileBlock }) {
+  const segments = segmentTranscriptByQuestion(fullTranscript, sessionPlan)
+    .filter(s => s.user_answer_transcript.trim());
+  if (!segments.length) return [];
+  try {
+    const raw = await callLLM({
+      systemPrompt: TEACHING_PROMPT,
+      userPrompt: `Practice context: "${situation.slice(0, 200)}"
+Exchanges and the candidate's full response to each (initial answer plus any follow-ups):
+${segments.map((s, i) => `${i + 1}. [${s.type || "exchange"}] "${s.question}"\nCandidate said: "${s.user_answer_transcript.slice(0, 600)}"`).join("\n\n")}
+
+Return exactly ${segments.length} entries, in order. JSON now.${profileBlock}`,
+      maxTokens: 1800,
+    });
+    const parsed = parseJSON(raw);
+    if (!Array.isArray(parsed?.question_breakdown)) return [];
+    return segments.map((s, i) => {
+      const entry = parsed.question_breakdown[i] || {};
+      return {
+        question: s.question,
+        user_answer_transcript: s.user_answer_transcript,
+        what_worked: typeof entry.what_worked === "string" ? entry.what_worked : "",
+        stronger_version: typeof entry.stronger_version === "string" ? entry.stronger_version : "",
+        why_it_works: typeof entry.why_it_works === "string" ? entry.why_it_works : "",
+        practice_prompt: typeof entry.practice_prompt === "string" ? entry.practice_prompt : "",
+      };
+    }).filter(e => e.what_worked || e.stronger_version);
+  } catch (e) {
+    console.error("[debrief] question breakdown failed:", e.message);
+    return [];
+  }
 }
 
 export default async function handler(req, res) {
@@ -131,10 +177,15 @@ Return ONLY: {"recap":"..."}`,
         console.error("[debrief] recap failed:", e.message);
       }
     }
+    const questionBreakdown = await buildQuestionBreakdown({
+      fullTranscript, sessionPlan: sessionData?.sessionPlan, situation, profileBlock,
+    });
+
     return res.json({
       mode,
       transcript: transcriptText,
       persona_impressions: [{ persona: personas[0]?.name || `Your ${module.partnerTitle?.toLowerCase() || "conversation partner"}`, impression: recap }],
+      question_breakdown: questionBreakdown,
       signal_summary: signalData ? summarizeSignals(signalData, fullTranscript) : {},
       user_selected_categories: Array.isArray(userSelectedCategories) ? userSelectedCategories : [],
       session_facts: null,
@@ -217,40 +268,9 @@ JSON now.${profileBlock}`,
   }
 
   // ── Teaching debrief: per-question breakdown (Feature 3) ────────────────────
-  let questionBreakdown = [];
-  if (userTurns.length > 0) {
-    const segments = segmentTranscriptByQuestion(fullTranscript, sessionData?.sessionPlan)
-      .filter(s => s.user_answer_transcript.trim());
-    if (segments.length) {
-      try {
-        const raw = await callLLM({
-          systemPrompt: TEACHING_PROMPT,
-          userPrompt: `Interview context: "${situation.slice(0, 200)}"
-Questions and the candidate's full answer (initial answer plus any follow-ups):
-${segments.map((s, i) => `${i + 1}. [${s.type || "question"}] "${s.question}"\nCandidate said: "${s.user_answer_transcript.slice(0, 600)}"`).join("\n\n")}
-
-Return exactly ${segments.length} entries, in order. JSON now.${profileBlock}`,
-          maxTokens: 1800,
-        });
-        const parsed = parseJSON(raw);
-        if (Array.isArray(parsed?.question_breakdown)) {
-          questionBreakdown = segments.map((s, i) => {
-            const entry = parsed.question_breakdown[i] || {};
-            return {
-              question: s.question,
-              user_answer_transcript: s.user_answer_transcript,
-              what_worked: typeof entry.what_worked === "string" ? entry.what_worked : "",
-              stronger_version: typeof entry.stronger_version === "string" ? entry.stronger_version : "",
-              why_it_works: typeof entry.why_it_works === "string" ? entry.why_it_works : "",
-              practice_prompt: typeof entry.practice_prompt === "string" ? entry.practice_prompt : "",
-            };
-          }).filter(e => e.what_worked || e.stronger_version);
-        }
-      } catch (e) {
-        console.error("[debrief] question breakdown failed:", e.message);
-      }
-    }
-  }
+  const questionBreakdown = userTurns.length > 0
+    ? await buildQuestionBreakdown({ fullTranscript, sessionPlan: sessionData?.sessionPlan, situation, profileBlock })
+    : [];
 
   // ── Neutral signal summaries (only if tracking data was shared) ─────────────
   const signalSummary = signalData ? summarizeSignals(signalData, fullTranscript) : {};

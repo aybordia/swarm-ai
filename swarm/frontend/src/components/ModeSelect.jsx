@@ -43,7 +43,9 @@ export default function ModeSelect({ onSelect, onBack, getIdToken }) {
   }, [getIdToken]);
 
   const MODES = [
-    ...(modules || []).map(m => ({
+    // `custom` isn't a tile a user picks here — it's only reachable via the
+    // Coach's free-form box, which routes straight into MissionControl.
+    ...(modules || []).filter(m => m.key !== "custom").map(m => ({
       key: m.key,
       accent: PRESET[m.key]?.accent || "var(--dim)",
       title: PRESET[m.key]?.title || m.label,

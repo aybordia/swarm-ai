@@ -18,10 +18,13 @@ import modulesRoute from "./routes/modules.js";
 import {
   getCommunicationProfileRoute,
   patchPreferencesRoute,
+  resetPreferenceRoute,
+  setUserGoalsRoute,
   confirmFocusAreaRoute,
   exportCommunicationProfileRoute,
   deleteCommunicationProfileRoute,
 } from "./routes/communicationProfile.js";
+import { getCoachGreetingRoute } from "./routes/coach.js";
 import { verifyToken } from "./googleAuth.js";
 
 const app = express();
@@ -65,9 +68,12 @@ app.post("/api/profile", verifyToken, saveProfileRoute);
 app.get("/api/modules", verifyToken, modulesRoute);
 app.get("/api/communication-profile", verifyToken, getCommunicationProfileRoute);
 app.post("/api/communication-profile/preferences", verifyToken, patchPreferencesRoute);
+app.post("/api/communication-profile/preferences/reset", verifyToken, resetPreferenceRoute);
+app.post("/api/communication-profile/goals", verifyToken, setUserGoalsRoute);
 app.post("/api/communication-profile/focus-area", verifyToken, confirmFocusAreaRoute);
 app.get("/api/communication-profile/export", verifyToken, exportCommunicationProfileRoute);
 app.post("/api/communication-profile/delete", verifyToken, deleteCommunicationProfileRoute);
+app.get("/api/coach/greeting", verifyToken, getCoachGreetingRoute);
 app.post("/api/peer/queue", verifyToken, peerJoin);
 app.get("/api/peer/status", verifyToken, peerStatus);
 app.post("/api/peer/cancel", verifyToken, peerCancel);

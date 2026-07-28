@@ -4,12 +4,20 @@
 import {
   getCommunicationProfile,
   patchUserPreferences,
+  resetUserPreference,
   setActiveFocusArea,
+  setUserGoals,
   exportCommunicationProfile,
   deleteCommunicationProfile,
 } from "../lib/communicationProfileStore.js";
 
-const ALLOWED_PREF_KEYS = ["prefers_longer_thinking_time", "responds_better_to", "struggles_after_n_followups"];
+const ALLOWED_PREF_KEYS = [
+  "prefers_longer_thinking_time",
+  "responds_better_to",
+  "struggles_after_n_followups",
+  "preferred_session_length_min",
+  "prefers_text_over_voice_when_tired",
+];
 
 export async function getCommunicationProfileRoute(req, res) {
   const userId = req.user?.sub;
@@ -26,6 +34,24 @@ export async function patchPreferencesRoute(req, res) {
     if (key in (req.body || {})) patch[key] = req.body[key];
   }
   const profile = await patchUserPreferences(userId, patch);
+  const { _inference, ...publicProfile } = profile;
+  res.json({ profile: publicProfile });
+}
+
+export async function resetPreferenceRoute(req, res) {
+  const userId = req.user?.sub;
+  if (!userId) return res.status(401).json({ error: "auth required" });
+  const key = req.body?.key;
+  if (!ALLOWED_PREF_KEYS.includes(key)) return res.status(400).json({ error: "unknown preference key" });
+  const profile = await resetUserPreference(userId, key);
+  const { _inference, ...publicProfile } = profile;
+  res.json({ profile: publicProfile });
+}
+
+export async function setUserGoalsRoute(req, res) {
+  const userId = req.user?.sub;
+  if (!userId) return res.status(401).json({ error: "auth required" });
+  const profile = await setUserGoals(userId, req.body?.goals);
   const { _inference, ...publicProfile } = profile;
   res.json({ profile: publicProfile });
 }

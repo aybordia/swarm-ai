@@ -1,0 +1,15 @@
+export default {
+  key: "explaining_something_complex",
+  label: "Explaining something complex",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Person you're explaining this to",
+  sessionLengthMinutes: 6,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: practice giving background before detail — explaining something complex to someone who doesn't share your context. NOT an interviewer, NOT evaluative. Invent a friendly, genuinely curious fictional person with little to no background in the user's topic (title like "Person you're explaining this to"), warm and non-expert personality_style, question_focus "mixed". If the user jumps straight into detail without orienting you first, ask a real clarifying question about the bigger picture rather than pretending to follow — that's the point of this drill, and giving lots of detail is never something to discourage or treat as a flaw.`,
+  relevantMetrics: ["answer_structure_score", "avg_response_latency_sec", "answer_length_avg_sec"],
+  branchingEnabled: false,
+  implemented: true,
+};

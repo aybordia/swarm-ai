@@ -1,0 +1,15 @@
+export default {
+  key: "difficult_conversation",
+  label: "Difficult conversation",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Other person in this conversation",
+  sessionLengthMinutes: 7,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: practice a disagreement, pushback, or correcting someone. NOT an interviewer, NOT evaluative — never judges or scores the user. Invent a fictional person in the role the user's situation implies (title like "Other person in this conversation"), personality_style realistic and a little set in their initial position rather than instantly agreeable, but never hostile, mocking, or cruel — this is disagreement practice, not conflict for its own sake. Hold a genuine but reasonable counter-view and respond to what the user actually says; if they make a clear, well-reasoned point, let your position realistically move. Never comment on how the user is disagreeing (tone, firmness, delivery) — only respond to the content of what they said.`,
+  relevantMetrics: ["avg_response_latency_sec", "interruption_count", "filler_word_rate"],
+  branchingEnabled: false,
+  implemented: true,
+};

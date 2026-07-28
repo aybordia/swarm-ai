@@ -77,17 +77,27 @@ function defaultProfile(userId) {
     metrics: Object.fromEntries(METRIC_KEYS.map(k => [k, emptyMetric()])),
     context_deltas: {
       technical_vs_behavioral: { pace_delta_pct: null, latency_delta_sec: null },
+      // Populated once peer (live-stranger) sessions feed turn metrics through
+      // the same aggregation path as AI-persona practice sessions — not yet
+      // wired up (peer mode currently has no transcript/metrics capture), so
+      // this stays null rather than being derived from a proxy.
+      stranger_vs_familiar: { pace_delta_pct: null, latency_delta_sec: null },
     },
     user_preferences_learned: {
       prefers_longer_thinking_time: false,
       responds_better_to: null,
       struggles_after_n_followups: null,
+      preferred_session_length_min: null,
+      prefers_text_over_voice_when_tired: null,
     },
     // Fields a manual edit has touched — the aggregator never overwrites these again.
     preferences_locked: {},
     active_focus_area: null,   // user-confirmed only (Feature 2: "AI proposes, user picks")
     proposed_focus_area: null, // AI-proposed, awaiting confirmation
     mastered_areas: [],
+    // User-entered, in their own words. Drives coach-proposed and custom drills.
+    // Never inferred — only ever what the user typed.
+    user_goals: [],
     // Internal rolling samples used only to derive user_preferences_learned —
     // not part of the user-facing/editable schema.
     _inference: { extendTimeUsage: [], struggleFollowupSamples: [] },
@@ -106,6 +116,7 @@ function mergeWithDefaults(userId, stored) {
     user_preferences_learned: { ...d.user_preferences_learned, ...(stored.user_preferences_learned || {}) },
     preferences_locked: { ...(stored.preferences_locked || {}) },
     mastered_areas: Array.isArray(stored.mastered_areas) ? stored.mastered_areas : [],
+    user_goals: Array.isArray(stored.user_goals) ? stored.user_goals : [],
     _inference: { ...d._inference, ...(stored._inference || {}) },
   };
 }
@@ -150,6 +161,43 @@ export async function exportCommunicationProfile(userId) {
   return publicProfile;
 }
 
+// Compact, plain-language summary for injection into a coach LLM prompt —
+// never the raw profile object or session transcripts, per Feature 1's "inject
+// a compact profile summary... not raw history, a summary, to keep context small".
+export function summarizeProfileForPrompt(profile, recentSituations = []) {
+  const lines = [];
+  lines.push(`Sessions completed: ${profile.sessions_completed || 0}`);
+
+  const focusArea = profile.active_focus_area;
+  const proposedArea = !focusArea ? profile.proposed_focus_area : null;
+  if (focusArea) {
+    lines.push(`Confirmed focus area (user already agreed to this): ${FOCUS_AREA_DESCRIPTIONS[focusArea] || focusArea}`);
+  } else if (proposedArea) {
+    lines.push(`Possible focus area, NOT YET CONFIRMED by the user — offer it, don't assume it: ${FOCUS_AREA_DESCRIPTIONS[proposedArea] || proposedArea}`);
+  }
+
+  if (profile.mastered_areas?.length) {
+    lines.push(`Areas previously worked on: ${profile.mastered_areas.map(a => FOCUS_AREA_DESCRIPTIONS[a] || a).join(", ")}`);
+  }
+
+  const learned = profile.user_preferences_learned || {};
+  const prefLines = [];
+  if (learned.prefers_longer_thinking_time) prefLines.push("prefers more time to think before answering");
+  if (learned.responds_better_to) prefLines.push(`responds better to a ${learned.responds_better_to} tone`);
+  if (Number.isFinite(learned.preferred_session_length_min)) prefLines.push(`prefers sessions around ${learned.preferred_session_length_min} minutes`);
+  if (prefLines.length) lines.push(`Learned preferences: ${prefLines.join("; ")}`);
+
+  if (profile.user_goals?.length) {
+    lines.push(`Goals the user has stated, in their own words: ${profile.user_goals.join("; ")}`);
+  }
+
+  if (recentSituations.length) {
+    lines.push(`Last ${recentSituations.length} session topic(s), most recent first: ${recentSituations.join(" | ")}`);
+  }
+
+  return lines.join("\n");
+}
+
 // ── Manual preference edits (always overridable, per the no-hidden-profile rule) ──
 export async function patchUserPreferences(userId, patch = {}) {
   const profile = await getCommunicationProfile(userId);
@@ -158,6 +206,29 @@ export async function patchUserPreferences(userId, patch = {}) {
     profile.user_preferences_learned[key] = value;
     profile.preferences_locked[key] = true;
   }
+  return saveCommunicationProfile(userId, profile);
+}
+
+// Un-edits a single preference: removes the manual-edit lock and restores the
+// field to its default so the aggregator resumes inferring it. This is the
+// "change your mind / let the app re-learn it" counterpart to patchUserPreferences
+// — no hidden model of a person means no field the user set can get permanently stuck.
+export async function resetUserPreference(userId, key) {
+  const profile = await getCommunicationProfile(userId);
+  const defaults = defaultProfile(userId).user_preferences_learned;
+  if (!(key in defaults)) return profile;
+  profile.user_preferences_learned[key] = defaults[key];
+  delete profile.preferences_locked[key];
+  return saveCommunicationProfile(userId, profile);
+}
+
+// Full replace — the user's own words, in their own list, never inferred.
+export async function setUserGoals(userId, goals) {
+  const profile = await getCommunicationProfile(userId);
+  const cleaned = Array.isArray(goals)
+    ? goals.map(g => String(g).trim()).filter(Boolean).slice(0, 20)
+    : [];
+  profile.user_goals = cleaned;
   return saveCommunicationProfile(userId, profile);
 }
 
@@ -227,6 +298,15 @@ const FOCUS_AREA_METRIC = {
   response_latency: "avg_response_latency_sec",
   filler_words: "filler_word_rate",
   answer_length: "answer_length_avg_sec",
+};
+// Plain-language phrasing for the same focus-area keys — mirrors the labels
+// used client-side (ContinuityPrompt.jsx/ProgressView.jsx) but lives here too
+// since the coach greeting is generated server-side.
+const FOCUS_AREA_DESCRIPTIONS = {
+  answer_structure: "giving context before detail — how answers are structured",
+  response_latency: "response pacing",
+  filler_words: "filler words",
+  answer_length: "answer length",
 };
 const LOWER_IS_MASTERY_PROGRESS = new Set(["avg_response_latency_sec", "filler_word_rate"]);
 

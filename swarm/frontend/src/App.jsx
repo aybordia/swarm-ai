@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
+import Coach from "./components/Coach";
 import SituationInput from "./components/SituationInput";
 import ModeSelect from "./components/ModeSelect";
 import PeerSession from "./components/PeerSession";
@@ -15,6 +16,7 @@ import { stopAllAudio } from "./hooks/useVoiceOutput";
 import { getJSON } from "./lib/api";
 
 const SCREENS = {
+  COACH:           "COACH",
   DASHBOARD:       "DASHBOARD",
   PROGRESS:        "PROGRESS",
   PROFILE:         "PROFILE",
@@ -105,7 +107,7 @@ function decodeJwt(jwt) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem("google_id_token"));
-  const [screen, setScreen] = useState(SCREENS.DASHBOARD);
+  const [screen, setScreen] = useState(SCREENS.COACH);
   const [situation, setSituation] = useState("");
   const [intent, setIntent] = useState(null);
   const [mode, setMode] = useState("interview");      // interview | conversation
@@ -230,7 +232,7 @@ export default function App() {
     const resume = pendingMode;
     setPendingMode(null);
     if (resume) proceedToMode(resume);
-    else setScreen(SCREENS.DASHBOARD);
+    else setScreen(SCREENS.COACH);
   };
 
   const handleProfileSkip = () => {
@@ -238,7 +240,7 @@ export default function App() {
     const resume = pendingMode;
     setPendingMode(null);
     if (resume) proceedToMode(resume);
-    else setScreen(SCREENS.DASHBOARD);
+    else setScreen(SCREENS.COACH);
   };
 
   const handleLaunch = (sit, opts = {}) => {
@@ -299,18 +301,31 @@ export default function App() {
     setScreen(SCREENS.SITUATION_INPUT);
   };
 
-  const handleBackToDashboard = () => {
+  // The coach is home now (Feature 1) — "back" from any screen returns here,
+  // not to the session-history dashboard.
+  const handleBackToHome = () => {
     stopAllAudio();
-    setScreen(SCREENS.DASHBOARD);
+    setScreen(SCREENS.COACH);
+  };
+
+  // Coach's free-form box (Feature 1): the user describes what they actually
+  // need in their own words, and the coach builds a drill around it on the
+  // fly via the `custom` module — bypasses ModeSelect/SituationInput's preset
+  // flow entirely, same short-circuit pattern as handlePracticeThisNow.
+  const handleFreeformLaunch = (text) => {
+    setMode("custom");
+    setTone("neutral");
+    setSupportLevel("guided");
+    handleLaunch(text, { tone: "neutral", supportLevel: "guided" });
   };
 
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", background: "var(--ink)" }}>
       <ForASDBanner />
 
-      {user && screen !== SCREENS.DASHBOARD && (
+      {user && screen !== SCREENS.COACH && (
         <button
-          onClick={handleBackToDashboard}
+          onClick={handleBackToHome}
           style={{
             position: "fixed", left: 20, top: 20, zIndex: 1000,
             padding: "6px 14px", borderRadius: "8px",
@@ -378,11 +393,22 @@ export default function App() {
         <SignIn googleReady={googleReady} onCredential={handleCredentialResponse} />
       ) : (
         <AnimatePresence mode="wait">
+          {screen === SCREENS.COACH && (
+            <Coach
+              key="coach"
+              user={user}
+              getIdToken={getIdToken}
+              onOpenLibrary={() => setScreen(SCREENS.MODE_SELECT)}
+              onOpenProgress={() => setScreen(SCREENS.PROGRESS)}
+              onOpenHistory={() => setScreen(SCREENS.DASHBOARD)}
+              onFreeformLaunch={handleFreeformLaunch}
+            />
+          )}
           {screen === SCREENS.DASHBOARD && (
             <Dashboard key="dashboard" user={user} onNewSession={handleNewSession} onOpenProgress={() => setScreen(SCREENS.PROGRESS)} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.PROGRESS && (
-            <ProgressView key="progress" onBack={handleBackToDashboard} getIdToken={getIdToken} />
+            <ProgressView key="progress" onBack={handleBackToHome} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.PROFILE && (
             <ProfileSetup
@@ -394,10 +420,10 @@ export default function App() {
             />
           )}
           {screen === SCREENS.MODE_SELECT && (
-            <ModeSelect key="mode" onSelect={handleModeSelect} onBack={handleBackToDashboard} getIdToken={getIdToken} />
+            <ModeSelect key="mode" onSelect={handleModeSelect} onBack={handleBackToHome} getIdToken={getIdToken} />
           )}
           {screen === SCREENS.PEER && (
-            <PeerSession key="peer" getIdToken={getIdToken} onExit={handleBackToDashboard} />
+            <PeerSession key="peer" getIdToken={getIdToken} onExit={handleBackToHome} />
           )}
           {screen === SCREENS.SITUATION_INPUT && (
             <SituationInput key="input" mode={mode} moduleInfo={moduleMeta[mode]} onLaunch={handleLaunch} initialSituation={situation} onBack={() => setScreen(SCREENS.MODE_SELECT)} getIdToken={getIdToken} />

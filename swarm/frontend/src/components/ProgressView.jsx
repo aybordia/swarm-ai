@@ -33,16 +33,22 @@ const TONE_OPTIONS = [
 
 function PreferencesEditor({ profile, getIdToken, onUpdated }) {
   const learned = profile?.user_preferences_learned || {};
+  const locked = profile?.preferences_locked || {};
   const [prefersLongerThinkingTime, setPrefersLongerThinkingTime] = useState(!!learned.prefers_longer_thinking_time);
   const [respondsBetterTo, setRespondsBetterTo] = useState(learned.responds_better_to || "");
   const [strugglesAfterNFollowups, setStrugglesAfterNFollowups] = useState(
     Number.isFinite(learned.struggles_after_n_followups) ? String(learned.struggles_after_n_followups) : ""
   );
+  const [preferredSessionLengthMin, setPreferredSessionLengthMin] = useState(
+    Number.isFinite(learned.preferred_session_length_min) ? String(learned.preferred_session_length_min) : ""
+  );
+  const [prefersTextWhenTired, setPrefersTextWhenTired] = useState(!!learned.prefers_text_over_voice_when_tired);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resettingKey, setResettingKey] = useState(null);
 
   const save = async () => {
     setSaving(true);
@@ -53,6 +59,8 @@ function PreferencesEditor({ profile, getIdToken, onUpdated }) {
         prefers_longer_thinking_time: prefersLongerThinkingTime,
         responds_better_to: respondsBetterTo || null,
         struggles_after_n_followups: strugglesAfterNFollowups === "" ? null : Number(strugglesAfterNFollowups),
+        preferred_session_length_min: preferredSessionLengthMin === "" ? null : Number(preferredSessionLengthMin),
+        prefers_text_over_voice_when_tired: prefersTextWhenTired,
       }, token);
       onUpdated?.(updated);
       setSaved(true);
@@ -61,6 +69,29 @@ function PreferencesEditor({ profile, getIdToken, onUpdated }) {
     }
     setSaving(false);
   };
+
+  const resetPreference = async (key) => {
+    setResettingKey(key);
+    try {
+      const token = await getIdToken();
+      const { profile: updated } = await postJSON("/api/communication-profile/preferences/reset", { key }, token);
+      onUpdated?.(updated);
+    } catch (e) {
+      console.error("[ProgressView] reset preference failed:", e);
+    }
+    setResettingKey(null);
+  };
+
+  const ResetLink = ({ prefKey }) => !locked[prefKey] ? null : (
+    <button
+      className="btn btn-ghost"
+      disabled={resettingKey === prefKey}
+      onClick={() => resetPreference(prefKey)}
+      style={{ height: 28, padding: "0 10px", fontSize: 13, alignSelf: "flex-start" }}
+    >
+      {resettingKey === prefKey ? "Resetting…" : "Reset — let the app figure this out again"}
+    </button>
+  );
 
   const handleExport = async () => {
     setExporting(true);
@@ -95,26 +126,54 @@ function PreferencesEditor({ profile, getIdToken, onUpdated }) {
         These are inferred from how you've used the app — never hidden, always yours to change.
       </p>
 
-      <label style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
-        <input type="checkbox" checked={prefersLongerThinkingTime} onChange={e => setPrefersLongerThinkingTime(e.target.checked)} />
-        I usually want more time to think before answering
-      </label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
+          <input type="checkbox" checked={prefersLongerThinkingTime} onChange={e => setPrefersLongerThinkingTime(e.target.checked)} />
+          I usually want more time to think before answering
+        </label>
+        <ResetLink prefKey="prefers_longer_thinking_time" />
+      </div>
 
-      <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
-        I respond better to this interview tone:
-        <select value={respondsBetterTo} onChange={e => setRespondsBetterTo(e.target.value)}
-          style={{ padding: "8px 10px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16 }}>
-          {TONE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
+          I respond better to this interview tone:
+          <select value={respondsBetterTo} onChange={e => setRespondsBetterTo(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16 }}>
+            {TONE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <ResetLink prefKey="responds_better_to" />
+      </div>
 
-      <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
-        Move on after this many follow-ups on one question:
-        <input type="number" min="1" max="6" value={strugglesAfterNFollowups}
-          onChange={e => setStrugglesAfterNFollowups(e.target.value)}
-          placeholder="Let the app decide"
-          style={{ padding: "8px 10px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16, width: 160 }} />
-      </label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
+          Move on after this many follow-ups on one question:
+          <input type="number" min="1" max="6" value={strugglesAfterNFollowups}
+            onChange={e => setStrugglesAfterNFollowups(e.target.value)}
+            placeholder="Let the app decide"
+            style={{ padding: "8px 10px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16, width: 160 }} />
+        </label>
+        <ResetLink prefKey="struggles_after_n_followups" />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
+          Preferred session length (minutes):
+          <input type="number" min="3" max="60" value={preferredSessionLengthMin}
+            onChange={e => setPreferredSessionLengthMin(e.target.value)}
+            placeholder="Let the app decide"
+            style={{ padding: "8px 10px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16, width: 160 }} />
+        </label>
+        <ResetLink prefKey="preferred_session_length_min" />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--ui)", fontSize: 17, color: "var(--text)" }}>
+          <input type="checkbox" checked={prefersTextWhenTired} onChange={e => setPrefersTextWhenTired(e.target.checked)} />
+          I'd rather type than talk when I'm tired
+        </label>
+        <ResetLink prefKey="prefers_text_over_voice_when_tired" />
+      </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn btn-primary" disabled={saving} onClick={save} style={{ height: 44, padding: "0 18px", fontSize: 16 }}>
@@ -145,6 +204,76 @@ function PreferencesEditor({ profile, getIdToken, onUpdated }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function GoalsEditor({ profile, getIdToken, onUpdated }) {
+  const [goals, setGoals] = useState(profile?.user_goals || []);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async (next) => {
+    setSaving(true);
+    try {
+      const token = await getIdToken();
+      const { profile: updated } = await postJSON("/api/communication-profile/goals", { goals: next }, token);
+      setGoals(updated.user_goals || []);
+      onUpdated?.(updated);
+    } catch (e) {
+      console.error("[ProgressView] save goals failed:", e);
+    }
+    setSaving(false);
+  };
+
+  const addGoal = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    save([...goals, text]);
+  };
+
+  const removeGoal = (i) => save(goals.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="card" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--muted)", letterSpacing: "0.16em" }}>
+        WHAT YOU'RE WORKING TOWARD
+      </div>
+      <p style={{ fontFamily: "var(--ui)", fontWeight: 300, fontSize: 16, color: "var(--dim)", lineHeight: 1.6 }}>
+        In your own words. These drive drills the coach builds for you.
+      </p>
+
+      {goals.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {goals.map((g, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+              padding: "10px 14px", borderRadius: 10,
+              background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
+            }}>
+              <span style={{ fontFamily: "var(--ui)", fontSize: 16, color: "var(--text)" }}>{g}</span>
+              <button className="btn btn-ghost" disabled={saving} onClick={() => removeGoal(i)}
+                style={{ height: 28, padding: "0 10px", fontSize: 14, flexShrink: 0 }}>
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") addGoal(); }}
+          placeholder="e.g. explain my symptoms to my doctor"
+          style={{ flex: 1, padding: "10px 12px", borderRadius: 8, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", fontFamily: "var(--ui)", fontSize: 16 }}
+        />
+        <button className="btn btn-primary" disabled={saving || !draft.trim()} onClick={addGoal} style={{ height: 42, padding: "0 16px", fontSize: 15 }}>
+          Add
+        </button>
       </div>
     </div>
   );
@@ -275,6 +404,8 @@ export default function ProgressView({ onBack, getIdToken }) {
             </div>
           </div>
         )}
+
+        {profile && <GoalsEditor profile={profile} getIdToken={getIdToken} onUpdated={setProfile} />}
 
         {profile && <PreferencesEditor profile={profile} getIdToken={getIdToken} onUpdated={setProfile} />}
 

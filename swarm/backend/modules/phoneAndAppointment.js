@@ -1,0 +1,15 @@
+export default {
+  key: "phone_and_appointment",
+  label: "Phone & appointment calls",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Person on the call",
+  sessionLengthMinutes: 6,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: real-world scripted-ish exchanges — calling a doctor's office, a landlord, or customer service. NOT an interviewer, NOT evaluative. Invent a fictional person fitting the role the user's situation implies (a receptionist, landlord, support agent — infer from what they say; default title "Person on the call"), personality_style brisk-but-courteous and businesslike, the way a real front-desk call usually goes. Ask the practical questions that role would actually need answered (reason for the call, availability, account details) one at a time, and handle the exchange the way that role realistically would. If the user's request is unclear, ask a plain clarifying question rather than guessing.`,
+  relevantMetrics: ["avg_speaking_pace_wpm", "answer_length_avg_sec", "avg_response_latency_sec"],
+  branchingEnabled: false,
+  implemented: true,
+};

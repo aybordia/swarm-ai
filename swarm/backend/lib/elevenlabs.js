@@ -11,3 +11,11 @@ export const VOICE_IDS = {
 export function resolveVoiceId(voiceTarget) {
   return VOICE_IDS[voiceTarget] ?? VOICE_IDS.Rachel; // fallback to Rachel
 }
+
+// The coach's voice is a stable relationship, not a disposable session prop —
+// it must never be one of the five IDs above, since voiceDesigner.js draws
+// persona voices from exactly that pool every session. Override via env var
+// once a specific voice is chosen/verified in the ElevenLabs dashboard; the
+// default below is a distinct premade ElevenLabs voice ("Antoni") used only
+// as a placeholder until that's confirmed.
+export const COACH_VOICE_ID = process.env.COACH_VOICE_ID || "ErXwobaYiN019PkySvjV";

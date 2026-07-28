@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { streamFetch } from "../lib/api";
-import SnakeGame from "./SnakeGame";
 
 const AGENTS = [
   { name: "Researcher",     color: "#8FB6E8", label: "Researcher",    icon: "◎" },
@@ -480,21 +479,6 @@ export default function MissionControl({ situation, intent = null, mode = "inter
             )}
           </AnimatePresence>
         </div>
-
-        {/* Something to do while the swarm works */}
-        <AnimatePresence>
-          {!allDone && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.5, delay: 0.6 }}
-              style={{ display: "flex", justifyContent: "center", paddingBottom: 24 }}
-            >
-              <SnakeGame />
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </motion.div>
   );

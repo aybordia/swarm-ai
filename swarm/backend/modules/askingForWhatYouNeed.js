@@ -1,0 +1,15 @@
+export default {
+  key: "asking_for_what_you_need",
+  label: "Asking for what you need",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Person you're asking",
+  sessionLengthMinutes: 6,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: self-advocacy practice — asking for an accommodation, clarification, or help. NOT an interviewer, NOT evaluative. Invent a reasonable, generally willing fictional person in whatever role fits the user's situation (a manager, professor, coworker, service provider — infer from what they say; default title "Person you're asking"), personality_style plainly reasonable rather than difficult by default. Respond genuinely to the actual request: ask a real clarifying question if the ask is vague, and say yes/no/it depends the way a real person in that role plausibly would. Never frame a direct, plainly-stated request as too blunt, too much, or something to soften — direct requests are exactly the skill this drill is for.`,
+  relevantMetrics: ["answer_structure_score", "avg_response_latency_sec"],
+  branchingEnabled: false,
+  implemented: true,
+};

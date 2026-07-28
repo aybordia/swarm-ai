@@ -10,6 +10,11 @@ export const TRACKING_SYSTEM_RULES = `- NEVER comment on, evaluate, or reference
 - Any statement about a tracked signal must be a neutral, measured, context-linked observation of what happened (e.g. "your pace increased X% during Y compared to Z") — never an instruction, suggestion, or judgment. State the fact and stop; let the person decide what, if anything, to do with it.
 - Coaching the CONTENT and STRUCTURE of what was said (facts, organization, specificity, relevance) is allowed and encouraged. Coaching HOW it was delivered physically or vocally is never allowed.`;
 
+// Spec-canonical alias — prepend this (or TRACKING_SYSTEM_RULES, same value) to
+// every system prompt for an LLM call that can see tracking data or generate
+// feedback.
+export const MASKING_GUARDRAIL = TRACKING_SYSTEM_RULES;
+
 function round(n, digits = 1) {
   const f = 10 ** digits;
   return Math.round(n * f) / f;
@@ -31,6 +36,8 @@ function pctChange(a, b) {
 //   kind: "context_delta"  — "Your X increased 28% during A compared to B (182 wpm vs 142 wpm)."
 //   kind: "context_compare" — "Your average X A was 6.3s, compared to 2.1s B."
 //   kind: "trend"           — "X has decreased from 6.1s to 4.2s over 8 sessions."
+//   kind: "variance"        — "Your X stayed quite steady across the session." / moved more
+//                              during one segment than another.
 export function formatObservation(input = {}) {
   const { kind, metric, unit = "" } = input;
   const u = unit ? unit : "";
@@ -55,6 +62,13 @@ export function formatObservation(input = {}) {
       const direction = to < from ? "decreased" : to > from ? "increased" : "stayed steady";
       const range = direction === "stayed steady" ? `around ${fmt(to)}` : `from ${fmt(from)} to ${fmt(to)}`;
       return `${metric} has ${direction} ${range}${sessionCount ? ` over ${sessionCount} sessions` : ""}.`;
+    }
+    case "variance": {
+      const { steady, movedVerb = "shifted", maxSegment, minSegment, even } = input;
+      if (steady) return `Your ${metric} stayed quite steady across the session.`;
+      if (even) return `Your ${metric} ${movedVerb} at a fairly even level throughout the session.`;
+      if (!maxSegment || !minSegment) return null;
+      return `Your ${metric} ${movedVerb} more during ${maxSegment} of the session, and was steadiest in ${minSegment}.`;
     }
     default:
       return null;

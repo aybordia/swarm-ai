@@ -1,7 +1,11 @@
 // Neutral, descriptive summaries of client-derived tracking signals.
 // Input: [{ timestamp, signal_type, value }] — derived numbers only, never video.
 // Output: plain-language observations. Deliberately non-evaluative: describes
-// change over time, never "good/bad", never "normal/abnormal".
+// change over time, never "good/bad", never "normal/abnormal". All phrasing
+// is delegated to formatObservation() — this module only does the numeric
+// analysis (which segment moved most) and hands off the sentence itself.
+
+import { formatObservation } from "./observationRules.js";
 
 function stats(values) {
   if (!values.length) return null;
@@ -35,15 +39,16 @@ function describeMovement(series, { noun, movedVerb = "shifted" }) {
   const minIdx = sds.indexOf(Math.min(...sds));
   const spread = Math.max(...sds) - Math.min(...sds);
 
-  const parts = [];
   if (overall.sd < 0.02 || overall.sd < Math.abs(overall.mean) * 0.05) {
-    parts.push(`Your ${noun} stayed quite steady across the session.`);
-  } else if (spread > overall.sd * 0.5) {
-    parts.push(`Your ${noun} ${movedVerb} more during ${SEGMENT_NAMES[maxIdx]} of the session, and was steadiest in ${SEGMENT_NAMES[minIdx]}.`);
-  } else {
-    parts.push(`Your ${noun} ${movedVerb} at a fairly even level throughout the session.`);
+    return formatObservation({ kind: "variance", metric: noun, steady: true });
   }
-  return parts.join(" ");
+  if (spread > overall.sd * 0.5) {
+    return formatObservation({
+      kind: "variance", metric: noun, movedVerb,
+      maxSegment: SEGMENT_NAMES[maxIdx], minSegment: SEGMENT_NAMES[minIdx],
+    });
+  }
+  return formatObservation({ kind: "variance", metric: noun, movedVerb, even: true });
 }
 
 // Optionally relate the most-varied window to what was being asked at the time

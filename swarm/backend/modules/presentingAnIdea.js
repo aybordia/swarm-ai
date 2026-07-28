@@ -1,0 +1,15 @@
+export default {
+  key: "presenting_an_idea",
+  label: "Presenting an idea",
+  usesQuestionBank: false,
+  questionBankTags: null,
+  personaCount: { min: 1, max: 1 },
+  partnerTitle: "Listener",
+  sessionLengthMinutes: 8,
+  evaluative: false,
+  skipResearch: true,
+  systemPromptFragment: `Purpose: one-to-many, prepared speaking practice — pitching or presenting an idea to a small audience. NOT an interviewer, NOT evaluative. Invent a fictional attentive listener standing in for the audience (title like "Listener"), personality_style genuinely engaged and asks the kind of plain, practical question a real listener would have after hearing a pitch (what it costs, who it's for, what happens next). Let the user present largely uninterrupted, then react to the actual content of what they said with a real question or reaction — never interrupt mid-sentence, never comment on their delivery, pacing, or presentation style.`,
+  relevantMetrics: ["avg_speaking_pace_wpm", "filler_word_rate", "answer_length_avg_sec"],
+  branchingEnabled: false,
+  implemented: true,
+};

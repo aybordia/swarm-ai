@@ -112,11 +112,32 @@ export default function PeerSession({ getIdToken, onExit }) {
   const [handle, setHandle] = useState(() => localStorage.getItem(HANDLE_KEY) || "");
   const [mode, setMode] = useState("conversation");
   const [topic, setTopic] = useState("");
+  // Peer is a modifier available on any implemented drill (Feature 3), not a
+  // fixed choice between two hardcoded modes — `custom` is excluded server-side
+  // too (peer.js) since it's per-user free text, not a stable matching topic.
+  const [modeOptions, setModeOptions] = useState([["conversation", "Casual"], ["interview", "Interview practice"]]);
   const [error, setError] = useState(null);
   const [match, setMatch] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getIdToken?.();
+        const { modules } = await getJSON("/api/modules", token);
+        const opts = (modules || [])
+          .filter(m => m.implemented && m.key !== "custom")
+          .map(m => [m.key, m.label]);
+        if (!cancelled && opts.length) setModeOptions(opts);
+      } catch {
+        /* falls back to the default two-option list above */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getIdToken]);
 
   const pollRef = useRef(null);
   const callFrameRef = useRef(null);
@@ -352,11 +373,11 @@ export default function PeerSession({ getIdToken, onExit }) {
           <span style={{ fontFamily: "var(--mono)", fontSize: 15, color: "var(--dim)", letterSpacing: "0.12em" }}>
             KIND OF PRACTICE
           </span>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[["conversation", "Casual conversation"], ["interview", "Interview practice"]].map(([key, label]) => (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {modeOptions.map(([key, label]) => (
               <button key={key} onClick={() => setMode(key)} aria-pressed={mode === key}
                 style={{
-                  flex: 1, padding: "12px 14px", borderRadius: 10, cursor: "pointer",
+                  flex: "1 1 140px", padding: "12px 14px", borderRadius: 10, cursor: "pointer",
                   background: mode === key ? "rgba(143,182,232,0.12)" : "var(--surface)",
                   border: `1px solid ${mode === key ? "rgba(143,182,232,0.5)" : "var(--line)"}`,
                   fontFamily: "var(--ui)", fontSize: 19,

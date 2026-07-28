@@ -5,3 +5,5 @@ node_modules
 dist
 swarm/backend/data/users/
 swarm/backend/data/peer/
+.vercel
+.env*

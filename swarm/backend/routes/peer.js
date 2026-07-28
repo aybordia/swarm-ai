@@ -5,6 +5,17 @@
 import { joinQueue, getStatus, leaveQueue, endMatch, blockUser, fileReport } from "../lib/peerQueue.js";
 import { createPeerRoom } from "../lib/videoRoom.js";
 import { getSessions } from "../lib/sessionStore.js";
+import { listModules } from "../modules/index.js";
+
+// Peer (Jitsi, two real humans) is a modifier available on any implemented
+// drill, not a fixed pair of top-level modes — `custom` is excluded since
+// it's per-user free text, not a stable topic to match peers on. getModule()
+// falls back to "interview" for an unrecognized key, so membership must be
+// checked against the real registry rather than trusting a truthy lookup.
+function isPeerEligibleMode(mode) {
+  if (mode === "custom") return false;
+  return listModules().some(m => m.key === mode && m.implemented);
+}
 
 async function checkEligibility(req, res) {
   const userId = req.user?.sub;
@@ -41,7 +52,7 @@ export async function peerJoin(req, res) {
   const { handle, mode, topic } = req.body || {};
   const cleanHandle = String(handle || "").trim().slice(0, 24);
   if (!cleanHandle) return res.status(400).json({ error: "Choose a display name first (it doesn't have to be your real name)." });
-  if (!["interview", "conversation"].includes(mode)) return res.status(400).json({ error: "mode must be interview or conversation" });
+  if (!isPeerEligibleMode(mode)) return res.status(400).json({ error: "mode must be one of the practice library's implemented drills" });
 
   try {
     const result = await joinQueue({ userId, handle: cleanHandle, mode, topic }, createPeerRoom);
